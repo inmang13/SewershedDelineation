@@ -73,11 +73,16 @@ Test: pick a known manhole, trace manually on map, confirm algorithm matches.
 
 ---
 
-### Phase 5 — Population unit assignment `src/population_join.py`
-Buffer upstream pipes by `pipe_buffer_distance_ft`, spatial join against population units.
-Return served units + boundary units (partially inside/outside buffer).
+### Phase 5 — Population unit assignment `src/population_join.py` ✓ COMPLETE
+Buffer upstream pipes by `pipe_buffer_distance_ft`, select served parcels (intersect-any rule),
+dissolve into the sewershed polygon. Runner: `run_population_join.py`.
 
-Test: compare against a manually delineated sewershed for one of the 25 existing sites.
+Inclusion rule chosen empirically: validated against 24 hand-delineated sampling polygons
+(SiteID == FACILITYID), intersect-any scored median IoU 0.64 vs ~0.04 for stricter rules — boundary
+parcels are kept, not excluded (reverses the original plan; see decision_log 2026-06-28). Buffer held
+at 50 ft. Known gap: pumped/lift-station sites (e.g. 30804) can't be reproduced by gravity tracing.
+
+Test: DONE — `output/phase5_validation.gpkg` overlays generated vs truth polygons for all 25 sites.
 
 ---
 

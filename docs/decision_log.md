@@ -253,3 +253,47 @@ avoid rebuilding the KD-tree when batch-tracing many targets.
 above; cleanup findings applied. Real traces: 17506 → 465 pipes (depth 54), 22942 → 495 pipes, 26532 →
 79 pipes (≈ its whole 83-node component, as expected). Ready for Phase 5 (buffer upstream pipes →
 population-unit join), which consumes `TraversalResult.pidx_list`.
+
+## 2026-06-28 — Phase 5: population unit assignment (src/population_join.py)
+
+**Decision:** Parcel inclusion rule = **intersect-any** — a parcel is served if it touches the dissolved
+upstream-pipe buffer (`pipe_buffer_distance_ft`, 50 ft) at all.
+**Rationale (empirical, validated):** Tested three rules against 24 hand-delineated sampling polygons
+from the CommunityWastewaterDashboard (`Sampling_Polygons_05212026.shp`; join key **polygon SiteID ==
+manhole FACILITYID**, confirmed). Scored by IoU (intersection-over-union) of the dissolved generated
+polygon vs the truth polygon:
+
+| rule | median IoU |
+|---|---|
+| intersect-any | **0.64** (20/24 sites ≥ 0.5) |
+| ≥50% parcel area inside buffer | 0.03 |
+| centroid inside buffer | 0.04 |
+
+The strict rules collapse because the 50 ft buffer is a thin ribbon — the median served parcel is only
+~16% inside it, so "fully inside" yields ~4 parcels/site and centroid-in misses street-frontage parcels
+the main actually serves. The edge-straddling parcels ARE the sewershed.
+
+**Decision reversal (with user sign-off):** This overturns the earlier "don't include boundary parcels"
+instruction. That instruction was given against a mental model (parcels mostly inside the buffer) the
+geometry contradicts. User was shown the IoU table + the saved GIS overlay and confirmed intersect-any.
+Boundary parcels are therefore neither excluded nor flagged in Phase 5.
+
+**Decision:** Buffer distance stays at 50 ft for now. Intersect-any at 50 ft already gives median IoU
+0.64; a buffer sweep to optimize is deferred (offered, not requested).
+
+**Validation artifact:** `output/phase5_validation.gpkg` (layers `generated_intersect_50ft`,
+`validation_truth`, each with per-site IoU) for GIS review. Per-run output:
+`output/sewershed_<id>.gpkg` (served_parcels / sewershed / pipe_buffer).
+
+**Known limitation — lift stations / pumped systems:** 3 of 24 sites (30804, 03442, 02201) have zero
+overlap with truth. At least 30804 (Garrett Rd Lift Station) is pumped, not gravity-fed, so a gravity
+trace structurally cannot reproduce its catchment. Force-main / pumped sites are a known gap; gravity
+delineation only applies to gravity-served sites. Investigate the other two separately.
+
+**Design:** Phase 5 returns served parcels (`PopulationResult`) + the buffer; the dissolved polygon is a
+helper. Final shapefile output + delineation-level flags (large_catchment, no_upstream_found, etc.)
+remain Phase 6. `load_population_units` assigns the parcel layer's missing CRS from
+`population_units_crs` then reprojects, and drops null/empty geometries.
+
+**Result:** Site 17506 → 1,227 served parcels, 832 acres, IoU 0.58 vs truth (1,199 ac). Empty pidx_list
+(headwater) → empty result. CRS reprojection verified against the polygons' Shape_Area field (exact).
