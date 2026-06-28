@@ -1,0 +1,28 @@
+# Data and generated artifacts (large, not committed — per CLAUDE.md)
+data/
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Scratch / temp
+scratchpad/
+*.tmp
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

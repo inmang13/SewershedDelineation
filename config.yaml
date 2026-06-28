@@ -1,0 +1,46 @@
+inputs:
+  # Manhole to delineate — use FACILITYID (preferred) OR coordinate, not both
+  manhole_id: "17506"          # FACILITYID from manholes shapefile (Tract 18.02 sample site; 18177 was a headwater with no upstream)
+  manhole_coordinate: null     # [x, y] in EPSG:2264 feet — used only if manhole_id is null
+
+  gravity_main_shapefile: "data/gravity_mains.shp"
+  manholes_shapefile: "data/manholes.shp"
+  population_units_shapefile: "data/nc_the city_parcels_poly.shp"
+  population_units_crs: "EPSG:2264"   # parcels missing CRS in file — assigned on load
+
+parameters:
+  crs: "EPSG:2264"                  # NAD83 / NC State Plane, US survey feet
+  node_snap_tolerance_ft: 1.0       # endpoints within this distance merged into one node
+  snap_gap_search_radius_ft: 10.0   # search radius for near-miss end node pairs (snap gap QC flags)
+  manhole_snap_distance_ft: 50.0    # max distance to snap coordinate input to graph node
+  manhole_node_snap_ft: 5.0         # max distance to match a manhole to a pipe endpoint by coordinate
+  pipe_buffer_distance_ft: 50.0     # buffer around pipes for population unit matching
+  large_catchment_threshold_acres: 500.0
+  flag_map_context_buffer_ft: 1000.0  # zoom context around each flag in PDF maps
+
+  # Cyclic tangles (strongly-connected components) with this many manholes or
+  # fewer are treated as local flips and get a normal map page. Larger ones are
+  # sprawling logical loops — reported as a `large_cycle` flag with a suspect CSV
+  # instead of a (useless, citywide) map.
+  max_mappable_cycle_nodes: 10
+
+  # Which flag types get individual PDF map pages. All flags always appear in the
+  # CSV; this only controls the maps. Bulk completeness issues (isolated_manhole,
+  # disconnected_component) are left CSV-only by default — they read fine as rows
+  # and would otherwise dominate the PDF.
+  pdf_flag_types:
+    - invert_conflict
+    - missing_direction
+    - snap_gap
+    - negative_slope
+    - directed_cycle
+
+outputs:
+  node_layer: "output/pipe_endpoint_nodes.gpkg"
+  snap_gap_pairs: "output/snap_gap_pairs.gpkg"
+  end_nodes: "output/end_nodes.gpkg"
+  output_polygon: "output/sewershed.shp"
+  flags_report: "output/flags.csv"
+  flag_maps_pdf: "output/flag_maps.pdf"
+  large_cycle_suspects: "output/large_cycle_suspects.csv"
+  debug_upstream_pipes: "output/debug_upstream_pipes.shp"

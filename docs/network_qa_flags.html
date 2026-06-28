@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Network QA Flags — SewershedDelineation</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --border: #dde1e9;
+      --accent: #2c6fad;
+      --red: #c0392b;
+      --orange: #d35400;
+      --yellow: #b8860b;
+      --green: #27ae60;
+      --text: #1a1a2e;
+      --muted: #5a6070;
+      --tag-bg: #eef3fa;
+      --tag-border: #bcd0ea;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+
+    header {
+      max-width: 860px;
+      margin: 0 auto 2.5rem;
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 1.2rem;
+    }
+
+    header h1 {
+      font-size: 1.8rem;
+      color: var(--accent);
+      margin-bottom: 0.3rem;
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .section-label {
+      max-width: 860px;
+      margin: 2rem auto 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .card {
+      max-width: 860px;
+      margin: 0 auto 1rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem 1.4rem;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 0 1.5rem;
+      align-items: start;
+    }
+
+    .card-left {
+      padding-right: 1rem;
+      border-right: 1px solid var(--border);
+    }
+
+    .flag-name {
+      font-size: 0.95rem;
+      font-weight: 700;
+      font-family: 'Consolas', 'Courier New', monospace;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .severity {
+      display: inline-block;
+      margin-top: 0.5rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .sev-critical  { background: #fde8e6; color: var(--red);    border: 1px solid #f5b7b1; }
+    .sev-warning   { background: #fef3e2; color: var(--orange); border: 1px solid #f5cba7; }
+    .sev-info      { background: #eaf4ee; color: var(--green);  border: 1px solid #a9dfbf; }
+    .sev-attention { background: #fdfbea; color: var(--yellow); border: 1px solid #e8d87a; }
+
+    .output-tags {
+      margin-top: 0.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .tag {
+      font-size: 0.72rem;
+      background: var(--tag-bg);
+      border: 1px solid var(--tag-border);
+      border-radius: 3px;
+      padding: 0.1rem 0.45rem;
+      color: var(--accent);
+      font-family: 'Consolas', 'Courier New', monospace;
+      word-break: break-all;
+    }
+
+    .card-right h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: var(--text);
+    }
+
+    .card-right p {
+      font-size: 0.9rem;
+      color: #333;
+      margin-bottom: 0.6rem;
+    }
+
+    .card-right p:last-child { margin-bottom: 0; }
+
+    .trigger-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+    }
+
+    .trigger-text {
+      font-size: 0.85rem;
+      color: #444;
+      background: #f5f7fa;
+      border-left: 3px solid var(--accent);
+      padding: 0.3rem 0.6rem;
+      border-radius: 0 4px 4px 0;
+      margin-bottom: 0.7rem;
+    }
+
+    .note {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .finding-box {
+      max-width: 860px;
+      margin: 0 auto 1rem;
+      background: #fff8f0;
+      border: 1px solid #f5cba7;
+      border-left: 4px solid var(--orange);
+      border-radius: 6px;
+      padding: 1rem 1.2rem;
+      font-size: 0.88rem;
+      color: #333;
+    }
+
+    .finding-box strong {
+      display: block;
+      margin-bottom: 0.4rem;
+      color: var(--orange);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .stats-grid {
+      max-width: 860px;
+      margin: 0 auto 2rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      text-align: center;
+    }
+
+    .stat-num {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1.1;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: 'Consolas', 'Courier New', monospace;
+      margin-top: 0.2rem;
+    }
+
+    .stat-pct {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.1rem;
+    }
+
+    footer {
+      max-width: 860px;
+      margin: 2.5rem auto 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 0.8rem;
+    }
+
+    @media (max-width: 620px) {
+      .card { grid-template-columns: 1fr; }
+      .card-left { border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 0.8rem; margin-bottom: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Network QA Flags</h1>
+  <p>SewershedDelineation · Phase 2 — the city gravity main network · 38,359 pipes total</p>
+</header>
+
+<!-- Summary stats -->
+<div class="section-label">the city QA Run Results (2026-06-23)</div>
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-num">1,276</div>
+    <div class="stat-label">total flags</div>
+    <div class="stat-pct">~3.3% of pipes</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">522</div>
+    <div class="stat-label">isolated_manhole</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">345</div>
+    <div class="stat-label">disconnected_component</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">281</div>
+    <div class="stat-label">invert_conflict</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">112</div>
+    <div class="stat-label">missing_direction</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">13</div>
+    <div class="stat-label">snap_gap</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">2</div>
+    <div class="stat-label">negative_slope</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">4</div>
+    <div class="stat-label">directed_cycle SCCs</div>
+  </div>
+</div>
+
+<div class="finding-box">
+  <strong>Key Finding — Large Directed Cycle</strong>
+  A 270-node strongly-connected component spans roughly 10×16 miles of the the city network. This is not a physical loop — gravity can't circulate. It's a logical cycle created by misdirected pipes stitching the real tree into a circuit. Within it: 17 pipes with invert conflicts, 9 with negative slope, 42 with no invert data. Removing the 17 uphill edges collapses it to 131 nodes, meaning the residual flips lack invert evidence and need manual review. See <code>output/large_cycle_suspects.csv</code>.
+</div>
+
+<!-- Direction flags -->
+<div class="section-label">Direction Flags</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">missing_direction</div>
+    <span class="severity sev-warning">Warning</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+      <span class="tag">network_qa_maps.pdf</span>
+      <span class="tag">gravity_mains_repaired.shp</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Null FROMMH or TOMH</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">Pipe has a null value in the FROMMH or TOMH field, so flow direction is unknown.</div>
+    <p>If the pipe also has usable invert elevations (UPSTREAMIN / DOWNSTREAM), it's marked <code>QA_STATUS = "direction_inferrable"</code> in the repaired shapefile. The graph builder (Phase 3) will recover direction from those elevations — higher invert end = upstream.</p>
+    <p>If no invert data is available, it's marked <code>QA_STATUS = "flagged"</code> and needs manual attention. the city had 76 pipes with null FROMMH and 59 with null TOMH (112 distinct flagged pipes after overlap).</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">invert_conflict</div>
+    <span class="severity sev-critical">Critical</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+      <span class="tag">network_qa_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Water would flow uphill</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">UPSTREAMIN elevation &lt; DOWNSTREAM elevation — the upstream end is lower than the downstream end, which means the recorded direction is backward.</div>
+    <p>The most actionable direction flag. These pipes are the primary suspects inside the 270-node directed cycle — removing the 17 worst invert conflicts collapsed that SCC by nearly half.</p>
+    <p class="note">Phase 2 flags only. The pipe direction in the shapefile is not changed here — correction happens in Phase 3 or via manual GIS edit.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">negative_slope</div>
+    <span class="severity sev-warning">Warning</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+      <span class="tag">network_qa_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Recorded slope is negative</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">The SLOPE field is &lt; 0.</div>
+    <p>Cross-checked against invert elevations. Rare (2 in the city). Often accompanies or confirms an invert conflict but can also be a data entry error in the slope field alone.</p>
+    <p class="note">Low volume — review individually; these are likely quick fixes.</p>
+  </div>
+</div>
+
+<!-- Connectivity flags -->
+<div class="section-label">Connectivity Flags</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">snap_gap</div>
+    <span class="severity sev-warning">Warning</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+      <span class="tag">network_qa_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Near-miss endpoint that won't auto-merge</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">Two pipe endpoints are farther apart than the snap tolerance (auto-merge threshold) but closer than 2× that tolerance — in the "should be connected but isn't" band.</div>
+    <p>Sub-tolerance gaps are silently merged by the graph builder (no flag). Gaps in the band <code>(snap_tol, 2×snap_tol]</code> are flagged because they're likely real disconnections, not digitizing noise. 13 found in the city — look for pipes that appear visually connected in GIS but have a small gap.</p>
+    <p class="note">Detected using a scipy cKDTree over endpoints (O(n log n)) rather than a spatial self-join, which was too slow on ~76k endpoints.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">directed_cycle</div>
+    <span class="severity sev-critical">Critical</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+      <span class="tag">network_qa_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Small circular flow path (local flip)</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">A strongly-connected component (SCC) of ≤ <code>max_mappable_cycle_nodes</code> (default: 10) nodes is found in the directed graph.</div>
+    <p>A small cycle almost always means one or two locally misdirected pipes. Generates a zoomed PDF map page showing the cycle with flow direction arrows — quick to fix in GIS. the city had three small SCCs (4, 3, and 2 nodes).</p>
+    <p class="note">See also <code>large_cycle</code> for the pathological case.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">large_cycle</div>
+    <span class="severity sev-critical">Critical</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+      <span class="tag">large_cycle_suspects.csv</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Large circular flow path (systematic error)</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">A strongly-connected component exceeds <code>max_mappable_cycle_nodes</code> — too large to map usefully on a single page.</div>
+    <p>A large SCC is not a physical loop; it's a logical one created by systematically misdirected pipes. No PDF map is generated (a citywide tangle map is unreadable). Instead, <code>large_cycle_suspects.csv</code> lists all member pipes with invert/slope suspects sorted to the top — the highest-value targets for manual review.</p>
+    <p>the city's 270-node SCC is the primary instance. Will corrupt any sewershed traced through it until resolved.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">disconnected_component</div>
+    <span class="severity sev-attention">Attention</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Subgraph not connected to the main network</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">A group of pipes forms a valid subgraph but has no path connecting it to the largest connected component.</div>
+    <p>Could indicate a genuinely separate system (a private collection system, a pressure main misclassified as gravity), a snap gap that cuts off a branch, or a data error. The flag CSV includes the component size. 345 flagged in the city — most are probably small isolated branches.</p>
+    <p class="note">CSV-only. Not PDF-mapped because the volume (~345) is too high for useful review that way.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">isolated_manhole</div>
+    <span class="severity sev-info">Info</span>
+    <div class="output-tags">
+      <span class="tag">network_qa_flags.csv</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Manhole with no connected pipes</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">A manhole FACILITYID appears in the manholes layer but is not referenced by any pipe's FROMMH or TOMH field.</div>
+    <p>Most likely causes: access manholes or cleanouts with no associated pipe segment, manholes in areas not yet digitized, or ID mismatches between the manholes and gravity mains layers. 522 in the city — the largest single flag category but lowest operational risk (these are assets, not broken topology).</p>
+    <p class="note">CSV-only. Doesn't affect traversal unless a target manhole is one of these — which would produce a zero-result sewershed (caught by the Phase 6 <code>no_upstream_found</code> flag).</p>
+  </div>
+</div>
+
+<!-- Phase 6 delineation flags -->
+<div class="section-label">Delineation Flags (Phase 6 — per sewershed run)</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">boundary_parcel</div>
+    <span class="severity sev-warning">Warning</span>
+    <div class="output-tags">
+      <span class="tag">output/flags.csv</span>
+      <span class="tag">output/flag_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Parcel straddles the pipe buffer edge</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">A parcel is partially inside and partially outside the upstream pipe buffer — its inclusion in the sewershed is ambiguous.</div>
+    <p>These parcels are included (area-weighted or by centroid, per config) but flagged for human review. Common along the sewershed perimeter where a property connects to both an upstream and a downstream pipe segment.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">large_catchment</div>
+    <span class="severity sev-warning">Warning</span>
+    <div class="output-tags">
+      <span class="tag">output/flags.csv</span>
+      <span class="tag">output/flag_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Sewershed polygon exceeds area threshold</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">The dissolved output polygon area exceeds the configured <code>max_catchment_area</code>.</div>
+    <p>May indicate the traversal ran into a directed cycle and followed it further than expected, or the target manhole is a major trunk line. Review the upstream pipes debug layer to confirm the catchment boundary makes physical sense.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">no_upstream_found</div>
+    <span class="severity sev-critical">Review Required</span>
+    <div class="output-tags">
+      <span class="tag">output/flags.csv</span>
+      <span class="tag">output/flag_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Traversal returned zero upstream edges</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">The upstream graph traversal from the target manhole found no upstream edges.</div>
+    <p>Likely causes: the target manhole is isolated (no connected pipes), the manhole ID wasn't matched, or all connecting pipes are downstream-only from this point. Output sewershed will be empty. Check whether the target is an isolated_manhole.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-left">
+    <div class="flag-name">low_population_match</div>
+    <span class="severity sev-warning">Warning</span>
+    <div class="output-tags">
+      <span class="tag">output/flags.csv</span>
+      <span class="tag">output/flag_maps.pdf</span>
+    </div>
+  </div>
+  <div class="card-right">
+    <h3>Few parcels matched despite upstream pipe coverage</h3>
+    <div class="trigger-label">Trigger</div>
+    <div class="trigger-text">Upstream pipes cover a non-trivial area but the spatial join returns very few parcels.</div>
+    <p>Can mean the pipes run through undeveloped or industrial land (fine), or that the pipe buffer distance is too small to capture served parcels (check config). Review debug layers to distinguish.</p>
+  </div>
+</div>
+
+<!-- QA_STATUS reference -->
+<div class="section-label">QA_STATUS Field Values (gravity_mains_repaired.shp)</div>
+
+<div class="card" style="grid-template-columns: 1fr;">
+  <table style="width:100%; border-collapse:collapse; font-size:0.87rem;">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);">
+        <th style="text-align:left; padding:0.4rem 0.6rem; font-family:monospace; color:var(--accent);">QA_STATUS</th>
+        <th style="text-align:left; padding:0.4rem 0.6rem; color:var(--muted);">Meaning</th>
+        <th style="text-align:left; padding:0.4rem 0.6rem; color:var(--muted);">Graph builder action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:0.5rem 0.6rem; font-family:monospace;">original</td>
+        <td style="padding:0.5rem 0.6rem;">Pipe passed all QA checks. FROMMH/TOMH present and consistent.</td>
+        <td style="padding:0.5rem 0.6rem;">Add edge using FROMMH → TOMH as-is.</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:0.5rem 0.6rem; font-family:monospace;">flagged</td>
+        <td style="padding:0.5rem 0.6rem;">Pipe has a detected issue (invert conflict, cycle membership, snap gap, etc.). Direction may be wrong.</td>
+        <td style="padding:0.5rem 0.6rem;">Add edge using recorded FROMMH → TOMH, but traverse results through flagged pipes should be treated with caution.</td>
+      </tr>
+      <tr>
+        <td style="padding:0.5rem 0.6rem; font-family:monospace;">direction_inferrable</td>
+        <td style="padding:0.5rem 0.6rem;">FROMMH or TOMH is null, but invert elevations (UPSTREAMIN / DOWNSTREAM) are present and usable.</td>
+        <td style="padding:0.5rem 0.6rem;">Assign flow direction from geometry + inverts (higher invert = upstream end), then add edge. Does not write back to shapefile unless explicitly configured.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  SewershedDelineation · Phase 2 network QA · Generated 2026-06-24 · See docs/decision_log.md for rationale on all design choices.
+</footer>
+
+</body>
+</html>
