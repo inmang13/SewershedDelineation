@@ -297,3 +297,48 @@ remain Phase 6. `load_population_units` assigns the parcel layer's missing CRS f
 
 **Result:** Site 17506 → 1,227 served parcels, 832 acres, IoU 0.58 vs truth (1,199 ac). Empty pidx_list
 (headwater) → empty result. CRS reprojection verified against the polygons' Shape_Area field (exact).
+
+## 2026-06-29 — Phase 6: polygon construction + delineation flags (src/polygon_output.py)
+
+**Decision:** Dropped the `boundary_parcel` flag.
+**Rationale:** It was specified ("parcel straddles the pipe buffer edge", warning) before
+the Phase 5 finding. With intersect-any at a 50 ft buffer, the median served parcel is only
+~16% inside the buffer — edge-straddling is the *normal* case, not an anomaly. The flag would
+fire on ~95% of parcels every run: pure noise. User signed off on dropping it (the other three
+delineation flags remain).
+
+**Decision:** `low_population_match` is scale-invariant — it fires when the fraction of the
+**pipe buffer ribbon** overlapping any served parcel falls below
+`low_population_match_min_buffer_coverage` (default **0.5**), NOT on an absolute parcel count.
+**Rationale:** An absolute count false-flags legitimately small catchments (few pipes → few
+parcels is correct, not suspicious). The coverage fraction is ~1.0 for a well-covered catchment
+regardless of size; a low value means pipes run through unparcelled ground (coverage gap,
+undeveloped/industrial land, or a CRS mismatch). **Threshold is untuned** — there is no
+validation set for it the way intersect-any was empirically validated. Added to config.
+
+**Decision:** Memoized `PopulationResult.dissolve()`; reused the dissolved polygon across flags,
+shapefile, and map instead of recomputing `union_all()` 3-4× per run.
+**Rationale:** The served-parcel union is the most expensive op in the pipeline. Code review
+found it recomputed in `compute_flags` (×2), `build_sewershed_gdf`, and the map title. One cache
+on the result object collapses all of them.
+
+**Deferred:** The Phase 4→5 trace/join preamble is now duplicated between `run_population_join.py`
+and `run_polygon_output.py`. Not extracted — Phase 7 (`run.py`) wires all phases together and is
+the right home for a shared `(res, pipes, pop)` helper. Extracting now would just be reworked then.
+
+**Provenance note (parcel layer):** `data/nc_the city_parcels_poly.shp` originates from the
+**the city County Assessor** (per the layer's `SOURCEAGNT` field on every row), normalized to a
+standardized national parcel schema (ALTPARNO, CNTYFIPS, PARUSECODE, LANDVAL, PARVAL, …). It
+ships no `.prj`, so EPSG:2264 is declared in config. It already carries land value / use code /
+address fields, which will help the eventual ACS demographic join. There is also a pre-existing
+`Sample_ID` field tagging parcels to sample sites — not yet used.
+
+**Schema (provisional):** sewershed.shp summary fields are manhole / area_acres / n_parcels /
+n_pipes / max_depth (all ≤10 chars for DBF). Still an open question whether the GIS maintainer
+wants specific field names — see roadmap.
+
+**Result:** Site 17506 → 832.4 ac, 1,227 parcels, 465 pipes (depth 54); fires `large_catchment`
+only. Headwater 18177 → `no_upstream_found` (review_required), no polygon written, no crash.
+flags.csv always written (header even when clean). Overview map verified visually
+(`output/preview_png/sewershed_17506_map.png`). Phases remaining: 7 (integration); 2 & 3 built
+but never marked ✓ in roadmap — worth a status check before Phase 7.

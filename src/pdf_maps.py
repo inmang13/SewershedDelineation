@@ -137,6 +137,99 @@ def _make_flag_page(
     return fig
 
 
+def generate_sewershed_map(
+    served: gpd.GeoDataFrame,
+    buffer_geom,
+    pipes_sub: gpd.GeoDataFrame,
+    target_xy,
+    flags: list[dict],
+    manhole_id: str,
+    area_acres: float,
+    output_path: str,
+) -> None:
+    """
+    Write a one-page overview PDF for a delineated sewershed (Phase 6).
+
+    Unlike generate_qa_maps (one zoomed page per pipe-level flag), this is a single
+    catchment-wide page: served parcels, the pipe buffer outline, the contributing
+    pipes, and the target manhole, with any delineation flags listed in the title.
+
+    Args:
+        served       served parcels GeoDataFrame (PopulationResult.served)
+        buffer_geom  dissolved pipe buffer geometry (PopulationResult.buffer)
+        pipes_sub    contributing pipes (build_debug_pipes_gdf), may be None/empty
+        target_xy    (x, y) of the target manhole in the working CRS
+        flags        delineation flag dicts from polygon_output.compute_flags
+        manhole_id   target manhole id for the title
+        area_acres   dissolved sewershed area (already computed; shown in the title)
+        output_path  path for the output PDF
+    """
+    fig, ax = plt.subplots(figsize=(11, 8.5))
+
+    if not served.empty:
+        served.plot(ax=ax, facecolor="#C8E6C9", edgecolor="#7CB342",
+                    linewidth=0.3, zorder=2)
+
+    if buffer_geom is not None and not buffer_geom.is_empty:
+        gpd.GeoSeries([buffer_geom], crs=served.crs).boundary.plot(
+            ax=ax, color="#1565C0", linewidth=0.8, zorder=3)
+
+    if pipes_sub is not None and not pipes_sub.empty:
+        pipes_sub.plot(ax=ax, color="#37474F", linewidth=0.7, zorder=4)
+
+    tx, ty = target_xy
+    ax.plot(tx, ty, marker="*", color="#D32F2F", markersize=18, zorder=6,
+            markeredgecolor="white", markeredgewidth=0.8)
+
+    # Frame to the served extent (fall back to the buffer, then the manhole) with a
+    # small margin so the boundary isn't flush to the axes.
+    if not served.empty:
+        minx, miny, maxx, maxy = served.total_bounds
+    elif buffer_geom is not None and not buffer_geom.is_empty:
+        minx, miny, maxx, maxy = buffer_geom.bounds
+    else:
+        minx, miny, maxx, maxy = tx, ty, tx, ty
+    pad = max(maxx - minx, maxy - miny, 200.0) * 0.05
+    ax.set_xlim(minx - pad, maxx + pad)
+    ax.set_ylim(miny - pad, maxy + pad)
+    ax.set_aspect("equal")
+    ax.tick_params(labelsize=7)
+    ax.set_xlabel("Easting (ft, EPSG:2264)", fontsize=7)
+    ax.set_ylabel("Northing (ft, EPSG:2264)", fontsize=7)
+
+    _draw_scale_bar(ax, minx - pad + (maxx - minx) * 0.04,
+                    miny - pad + (maxy - miny) * 0.04, scale_ft=1000)
+
+    legend_elements = [
+        mpatches.Patch(facecolor="#C8E6C9", edgecolor="#7CB342", label="Served parcel"),
+        Line2D([0], [0], color="#1565C0", linewidth=1.5, label="Pipe buffer edge"),
+        Line2D([0], [0], color="#37474F", linewidth=1.5, label="Contributing pipe"),
+        Line2D([0], [0], marker="*", color="w", markerfacecolor="#D32F2F",
+               markersize=12, label="Target manhole"),
+    ]
+    ax.legend(handles=legend_elements, loc="lower right", fontsize=7, framealpha=0.9)
+
+    if flags:
+        flag_line = "  |  ".join(
+            f"{f['flag_type'].replace('_', ' ').upper()} ({f['severity']})"
+            for f in flags
+        )
+    else:
+        flag_line = "no flags"
+    title = (
+        f"SEWERSHED — manhole {manhole_id}\n"
+        f"{len(served):,} parcels  |  {area_acres:,.0f} acres\n"
+        f"Flags: {flag_line}"
+    )
+    ax.set_title(title, fontsize=8, loc="left", pad=10, wrap=True)
+
+    fig.tight_layout()
+    with PdfPages(output_path) as pdf:
+        pdf.savefig(fig)
+    plt.close(fig)
+    print(f"Sewershed map written to {output_path}")
+
+
 def _draw_direction_arrows(ax: plt.Axes, pipes: gpd.GeoDataFrame) -> None:
     """Draw a small arrow at the midpoint of each pipe showing flow direction."""
     for _, row in pipes.iterrows():

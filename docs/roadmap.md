@@ -86,21 +86,29 @@ Test: DONE — `output/phase5_validation.gpkg` overlays generated vs truth polyg
 
 ---
 
-### Phase 6 — Polygon construction + output `src/polygon_output.py`
-Dissolve served population units → write `output/sewershed.shp`.
-Write `output/debug_upstream_pipes.shp` for review.
+### Phase 6 — Polygon construction + output `src/polygon_output.py` ✓ COMPLETE
+Dissolve served population units → write `output/sewershed.shp` (+ summary fields:
+manhole, area_acres, n_parcels, n_pipes, max_depth). Write `output/debug_upstream_pipes.shp`
+(contributing pipes + traversal depth) for review. Runner: `run_polygon_output.py`.
 
 Flags at this stage (delineation-level, not network-level):
 | Flag | Trigger | Severity |
 |---|---|---|
-| `boundary_parcel` | Parcel straddles pipe buffer edge | `warning` |
-| `large_catchment` | Polygon exceeds area threshold | `warning` |
+| `large_catchment` | Polygon exceeds `large_catchment_threshold_acres` (500) | `warning` |
 | `no_upstream_found` | Traversal returns zero upstream edges | `review_required` |
-| `low_population_match` | Upstream pipes cover area but few parcels matched | `warning` |
+| `low_population_match` | <`low_population_match_min_buffer_coverage` (0.5, untuned) of the pipe buffer overlaps any served parcel | `warning` |
 
-These are appended to `output/flags.csv` and included in `output/flag_maps.pdf`.
+`boundary_parcel` was **dropped** — Phase 5 made edge-straddling parcels the norm (median
+~16% inside buffer), so it would fire on ~every parcel. `low_population_match` is
+scale-invariant (buffer-coverage fraction, not parcel count) so small catchments don't
+false-flag. See decision_log 2026-06-29.
 
-Test: load output in GIS, overlay with pipes and parcels, visually inspect.
+Outputs appended to `output/flags.csv` (always written, header even when clean) and a
+one-page overview map `output/flag_maps.pdf` (`generate_sewershed_map` in pdf_maps.py).
+
+Test: DONE — site 17506 → 832 ac, 1,227 parcels, fires `large_catchment` only; headwater
+18177 → `no_upstream_found`, no polygon, no crash. Map preview rendered and inspected
+(`output/preview_png/sewershed_17506_map.png`).
 
 ---
 
@@ -123,7 +131,14 @@ Option: `python run.py --config config.yaml --qa-only` to run just the network Q
 
 ## Open Questions
 
-- After QA/repair: what fraction of the 38,359 pipes end up flagged vs. repaired?
-  Will inform whether manual cleanup is needed before delineation is reliable.
-- Does the GIS maintainer want the repaired shapefile in a specific format or with
-  specific field names to match their existing schema?
+- **Lift-station / pumped sites:** 3 of 24 validation sites (30804, 03442, 02201) have zero overlap
+  with the hand-drawn truth polygons. 30804 (Garrett Rd) is a known lift station — pumped systems can't
+  be reproduced by gravity tracing. Need to confirm whether 03442 and 02201 are also pumped, and decide
+  how to handle pumped sites (flag and skip? separate method?).
+- **Buffer tuning:** 50 ft gives median IoU 0.64 with intersect-any. A buffer sweep (25/50/75/100 ft)
+  could raise the fit but hasn't been run — deferred unless accuracy needs to improve.
+- **Single residual direction error:** the one 2-node SCC (pipes 08373/08374, one digitized backwards)
+  is the entire remaining direction problem; no sample site touches it, so it's low priority for the
+  GIS maintainer.
+- Does the GIS maintainer want the repaired shapefile in a specific format or with specific field names
+  to match their existing schema?

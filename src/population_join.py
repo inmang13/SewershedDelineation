@@ -36,6 +36,8 @@ class PopulationResult:
     def __init__(self, served, buffer):
         self.served = served
         self.buffer = buffer
+        self._dissolved = None
+        self._dissolved_cached = False
 
     @property
     def n_served(self):
@@ -46,10 +48,18 @@ class PopulationResult:
         return self.served.empty
 
     def dissolve(self):
-        """Return the dissolved sewershed polygon (None if no served units)."""
-        if self.served.empty:
-            return None
-        return self.served.geometry.union_all()
+        """
+        Return the dissolved sewershed polygon (None if no served units).
+
+        Cached: union_all over all served parcels is the most expensive op in the
+        pipeline and Phase 6 asks for the dissolved polygon several times (flags,
+        shapefile, map). Compute it once.
+        """
+        if not self._dissolved_cached:
+            self._dissolved = (None if self.served.empty
+                               else self.served.geometry.union_all())
+            self._dissolved_cached = True
+        return self._dissolved
 
 
 def load_population_units(cfg: dict) -> gpd.GeoDataFrame:

@@ -18,6 +18,12 @@ parameters:
   large_catchment_threshold_acres: 500.0
   flag_map_context_buffer_ft: 1000.0  # zoom context around each flag in PDF maps
 
+  # low_population_match fires when less than this fraction of the pipe buffer
+  # overlaps any served parcel (scale-invariant; a low value = pipes running
+  # through unparcelled ground). UNTUNED — no validation set; adjust if it
+  # mis-fires on legitimate catchments.
+  low_population_match_min_buffer_coverage: 0.5
+
   # Cyclic tangles (strongly-connected components) with this many manholes or
   # fewer are treated as local flips and get a normal map page. Larger ones are
   # sprawling logical loops — reported as a `large_cycle` flag with a suspect CSV
