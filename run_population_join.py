@@ -31,7 +31,8 @@ def main():
 
     cfg = load_config(args.config)
     params = cfg["parameters"]
-    buffer_ft = params["pipe_buffer_distance_ft"]
+    selection_radius = params["selection_radius_ft"]
+    qc_buffer_ft = params["pipe_buffer_distance_ft"]
 
     print(f"Loading pipes : {cfg['inputs']['gravity_main_shapefile']}")
     G, pipes = load_graph_from_config(cfg)
@@ -51,10 +52,11 @@ def main():
     print(f"Loading parcels: {cfg['inputs']['population_units_shapefile']}")
     parcels = load_population_units(cfg)
 
-    pop = assign_population_units(pipes, res.pidx_list, parcels, buffer_ft)
+    pop = assign_population_units(pipes, res.pidx_list, parcels,
+                                  selection_radius, qc_buffer_ft)
 
     print()
-    print(f"Buffer distance : {buffer_ft} ft")
+    print(f"Selection radius: {selection_radius} ft")
     print(f"Served parcels  : {pop.n_served:,}")
     if pop.is_empty:
         print(">> Upstream pipes exist but no parcels intersect the buffer — "

@@ -10,6 +10,7 @@ from pathlib import Path
 from src.config import load_config
 from src.network_qa import run_qa
 from src.pdf_maps import generate_qa_maps
+from src.qc_output import write_qc_flags_gpkg
 
 
 def main():
@@ -61,6 +62,15 @@ def main():
     _write_flags_csv(flags, flags_path)
     print(f"Flags report:       {flags_path}")
 
+    # --- Write flags as spatial layers (GeoPackage) for GIS review ---
+    # replace=True: this is a fresh QA run, so wipe stale network layers first.
+    # Delineation flags append to the same file later (run_polygon_output).
+    gpkg_path = cfg["outputs"].get("qc_flags_gpkg")
+    if gpkg_path:
+        layers = write_qc_flags_gpkg(flags, gpkg_path, cfg["parameters"]["crs"],
+                                     replace=True)
+        print(f"QC flags GPKG:      {gpkg_path} ({len(layers)} layers)")
+
     # --- Write large-cycle suspect CSV (member pipes of big tangles) ---
     suspect_rows = [m for f in flags if f.get("member_pipes") for m in f["member_pipes"]]
     if suspect_rows:
@@ -99,6 +109,7 @@ def main():
         mapped_flags,
         pdf_path,
         cfg["parameters"]["flag_map_context_buffer_ft"],
+        cfg["parameters"].get("basemap_style"),
     )
     print(f"Flag maps PDF:      {pdf_path}")
 

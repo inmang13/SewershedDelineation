@@ -8,13 +8,33 @@ inputs:
   population_units_shapefile: "data/nc_the city_parcels_poly.shp"
   population_units_crs: "EPSG:2264"   # parcels missing CRS in file — assigned on load
 
+  # Census blocks — alternate population/boundary unit (statewide NC TIGER 2020).
+  # Ships a .prj (EPSG:4269 geographic); reprojected to `crs` and filtered to
+  # census_blocks_county_fips on load. Only needed for block/hybrid methods.
+  census_blocks_shapefile: "data/the city Blocks/tl_2021_37_tabblock20.shp"
+  census_blocks_crs: "EPSG:4269"      # TIGER files are NAD83 geographic
+  census_blocks_county_fips: "063"    # the city County — filter COUNTYFP20 before use
+
+  # Validation set (lives in the sibling CommunityWastewaterDashboard project).
+  # Only read by src/validation.py --sweep; not required for a normal run.
+  validation_truth_polygons: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Polygons_05212026.shp"
+  validation_points: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Locations_05212026.shp"
+
 parameters:
   crs: "EPSG:2264"                  # NAD83 / NC State Plane, US survey feet
   node_snap_tolerance_ft: 1.0       # endpoints within this distance merged into one node
   snap_gap_search_radius_ft: 10.0   # search radius for near-miss end node pairs (snap gap QC flags)
   manhole_snap_distance_ft: 50.0    # max distance to snap coordinate input to graph node
   manhole_node_snap_ft: 5.0         # max distance to match a manhole to a pipe endpoint by coordinate
-  pipe_buffer_distance_ft: 50.0     # buffer around pipes for population unit matching
+  pipe_buffer_distance_ft: 50.0     # thin QC ribbon for low_population_match coverage check
+  selection_radius_ft: 50.0         # buffer around pipes for population-unit selection (swept in validation)
+
+  # Boundary construction (Phase 8). `boundary_method` picks how the served units
+  # become a seamless polygon; morph_close is the tuned primary method.
+  boundary_method: "morph_close"    # morph_close | blocks_dissolve | hybrid | concave
+  close_radius_ft: 100.0            # morphological close radius (buffer +r then -r); swept in validation
+  concave_ratio: 0.3               # shapely.concave_hull ratio knob (0=tight, 1=convex); concave method only
+
   large_catchment_threshold_acres: 500.0
   flag_map_context_buffer_ft: 1000.0  # zoom context around each flag in PDF maps
 
@@ -41,6 +61,16 @@ parameters:
     - negative_slope
     - directed_cycle
 
+  # Basemap under PDF maps. Plot is reprojected to EPSG:3857 for tile display only
+  # (data on disk stays in `crs`). Requires internet at map time; degrades
+  # gracefully (skips basemap + warns) when offline.
+  basemap_style: "satellite"        # satellite (Esri World Imagery) | street (CartoDB Positron)
+
+  # IoU-floor success thresholds (Phase 8 validation). Left null until the first
+  # sweep reveals the achievable ceiling — set after reviewing the printed table.
+  iou_floor_median: null            # T1 — winner must have median IoU >= this
+  iou_floor_n_sites: null           # N  — winner must have >= N of 25 sites at IoU >= 0.5
+
 outputs:
   node_layer: "output/pipe_endpoint_nodes.gpkg"
   snap_gap_pairs: "output/snap_gap_pairs.gpkg"
@@ -50,3 +80,9 @@ outputs:
   flag_maps_pdf: "output/flag_maps.pdf"
   large_cycle_suspects: "output/large_cycle_suspects.csv"
   debug_upstream_pipes: "output/debug_upstream_pipes.shp"
+
+  # Phase 8 outputs
+  sewershed_parcels: "output/sewershed_parcels.shp"    # raw served-unit union (intermediate, inspectable)
+  sewershed_boundary: "output/sewershed_boundary.shp"  # final seamless boundary (scored)
+  validation_overlay: "output/validation_overlay.gpkg" # truth vs generated, per-site IoU
+  qc_flags_gpkg: "output/qc_flags.gpkg"                # network + delineation flags as spatial layers

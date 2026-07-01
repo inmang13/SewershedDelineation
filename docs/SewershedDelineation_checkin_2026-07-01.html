@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SewershedDelineation — Check-in 2026-07-01</title>
+<style>
+  :root{
+    --bg:#0f1417; --panel:#161d22; --panel2:#1c252b; --ink:#e6edf1; --mut:#9fb0bb;
+    --line:#2a353d; --accent:#4fc3f7; --good:#7cd992; --warn:#f5b451; --bad:#ef7a7a;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:860px;margin:0 auto;padding:40px 24px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.3px}
+  .date{color:var(--mut);font-size:14px;margin-bottom:28px}
+  h2{font-size:18px;margin:38px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line);
+     letter-spacing:.2px}
+  h2 .n{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:8px}
+  p{margin:10px 0}
+  .lede{background:linear-gradient(180deg,#182229,#141b20);border:1px solid var(--line);
+    border-left:3px solid var(--accent);border-radius:10px;padding:16px 18px;margin:0 0 8px}
+  .lede b{color:#fff}
+  code,.mono{font-family:var(--mono);font-size:.86em;background:var(--panel2);
+    padding:1px 6px;border-radius:5px;color:#cfe8ff}
+  .term{color:var(--mut);font-style:italic}
+  ul{margin:10px 0;padding-left:22px}
+  li{margin:6px 0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+  td.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:20px;
+    letter-spacing:.3px;text-transform:uppercase}
+  .p-done{background:rgba(124,217,146,.15);color:var(--good);border:1px solid rgba(124,217,146,.35)}
+  .p-hold{background:rgba(245,180,81,.15);color:var(--warn);border:1px solid rgba(245,180,81,.35)}
+  .p-open{background:rgba(159,176,187,.12);color:var(--mut);border:1px solid var(--line)}
+  .bars{margin:16px 0 6px}
+  .bar-row{display:grid;grid-template-columns:118px 1fr 74px;align-items:center;gap:10px;margin:7px 0}
+  .bar-lab{font-size:13.5px;color:var(--ink)}
+  .bar-track{background:var(--panel2);border-radius:6px;height:20px;overflow:hidden;border:1px solid var(--line)}
+  .bar-fill{height:100%;border-radius:6px 0 0 6px}
+  .bar-val{font-family:var(--mono);font-size:13px;color:var(--mut);text-align:right}
+  .caption{color:var(--mut);font-size:13px;margin-top:8px}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:14px 0;font-family:var(--mono);
+    font-size:12.5px}
+  .flow .box{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 9px;color:#cfe8ff}
+  .flow .box.new{border-color:rgba(79,195,247,.5);color:#dff2ff}
+  .flow .arw{color:var(--mut)}
+  .note{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px;
+    margin:16px 0;color:var(--mut);font-size:14px}
+  a{color:var(--accent)}
+  .foot{margin-top:40px;color:var(--mut);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>SewershedDelineation — Check-in</h1>
+  <div class="date">2026-07-01 · Phase 8 (service-area matching + QC spatial output + basemaps)</div>
+
+  <div class="lede">
+    <b>Phase 8 is built end-to-end and tested.</b> The new boundary-matching pipeline lifts fit from
+    <b>median IoU 0.64 → 0.79</b> against the 24 hand-drawn truth polygons. The winning recipe is the
+    morphological-close method on parcels — the census-block methods lost (they overshoot). One thing
+    is waiting on you: set the <b>IoU-floor</b> numbers so the sweep can auto-finalize the winner.
+  </div>
+  <p class="caption">IoU = <span class="term">intersection-over-union</span>: overlap area of generated
+  vs. truth polygon divided by their combined area. 1.0 = perfect, 0 = no overlap.</p>
+
+  <h2><span class="n">1</span>Where it stands</h2>
+  <p>All Phase-8 code is written, imports clean, and every module was exercised on real data this
+  session. The full validation sweep ran (960 rows, 40 method×radius combos). The pipeline now emits a
+  seamless boundary polygon, a spatial QC layer, and satellite basemaps. The <em>only</em> open gate is
+  the success-threshold decision, which is deliberately yours to make now that the sweep has revealed
+  the achievable ceiling (~0.79).</p>
+
+  <h2><span class="n">2</span>What I figured out</h2>
+  <p><b>morph_close wins clearly, and it's robust.</b> The <span class="term">morphological close</span>
+  (buffer the parcel union outward by <em>r</em>, fill every interior hole, buffer back in by <em>r</em> —
+  the automated version of your manual select→buffer→fill→shrink workflow) tops the table. Every combo
+  from selection-radius 50–150&nbsp;ft × close-radius 50–150&nbsp;ft lands in 0.78–0.795, so the method
+  isn't fragile to the exact distances. Only selection-radius 200&nbsp;ft degrades it (starts swallowing
+  neighbors).</p>
+
+  <div class="bars">
+    <div class="bar-row">
+      <div class="bar-lab">morph_close</div>
+      <div class="bar-track"><div class="bar-fill" style="width:79.5%;background:var(--good)"></div></div>
+      <div class="bar-val">0.795</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-lab">concave hull</div>
+      <div class="bar-track"><div class="bar-fill" style="width:78.0%;background:#8fce9e"></div></div>
+      <div class="bar-val">0.780</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-lab">blocks dissolve</div>
+      <div class="bar-track"><div class="bar-fill" style="width:60.3%;background:var(--warn)"></div></div>
+      <div class="bar-val">0.603</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-lab">hybrid</div>
+      <div class="bar-track"><div class="bar-fill" style="width:49.6%;background:var(--bad)"></div></div>
+      <div class="bar-val">0.496</div>
+    </div>
+  </div>
+  <p class="caption">Best median IoU per method (aggregate n=21: excludes pumped 30804 + zero-overlap
+  02201/03442). Full table: <code>output/validation_sweep.csv</code>.</p>
+
+  <ul>
+    <li><b>The census-block methods lost — and that's a real finding, not a bug.</b> Blocks
+    <em>tile</em> the landscape, which was the appeal, but the city's blocks are much bigger than the
+    actual served area, so <code>blocks_dissolve</code> and <code>hybrid</code> overshoot the truth.
+    Testing it empirically (rather than assuming blocks would help) is worth a line in the writeup.
+    Blocks still matter later for the <em>demographic</em> apportionment (Hill&nbsp;&amp; Larsen 2023) —
+    that's a different job.</li>
+    <li><b>Decoupling the two radii without breaking QC.</b> Split <code>selection_radius_ft</code>
+    (how far from a pipe a parcel counts as served — now sweepable) from
+    <code>pipe_buffer_distance_ft</code> (kept as the thin QC ribbon). The <code>low_population_match</code>
+    flag measures coverage against that thin ribbon, so widening selection no longer makes the flag
+    silently read "fully covered." Regression-checked.</li>
+    <li><b>Fail-loud join, and it held.</b> The sweep pairs truth <code>SiteID</code> ==
+    point <code>AssetID_tx</code> (the points layer has no <code>FACILITYID</code>) and asserts ~24
+    matches before scoring — a bad join would otherwise yield a silent all-garbage table. It matched all
+    24 cleanly.</li>
+    <li><b>One latent bug caught &amp; fixed.</b> The validation overlay cached geometries by a
+    <code>param2</code> key that pandas turns from <code>None</code>→<code>NaN</code> for the block
+    methods (<span class="term">NaN</span> = "not a number," pandas' null for numeric columns). A
+    block-method winner would have written an <em>empty</em> overlay. Can't trigger today (morph_close
+    wins with a real number), but hardened with a <code>pd.isna</code> check and unit-tested.</li>
+    <li><b>Basemaps via contextily, feet preserved.</b> Rather than reproject the whole plot to Web
+    Mercator (which would break the ft-based scale bars/arrows), I hand contextily the data CRS
+    (<code>EPSG:2264</code>) and it warps the <em>tiles</em> to match — same look, data stays in feet.
+    Satellite default; degrades gracefully (warns, still renders) when offline or contextily's missing.</li>
+  </ul>
+
+  <h2><span class="n">3</span>Decisions in play</h2>
+  <p>Logged today in <a href="decision_log.md">decision_log.md</a> (2026-07-01):</p>
+  <ul>
+    <li><b>Boundary = empirically-chosen method</b> from a 4-way sweep; <code>morph_close</code> is the
+    locked primary, IoU decides among the rest.</li>
+    <li><b>Fill ALL holes, keep ALL parts</b> — solid polygon (interior lakes/ROW carry no population;
+    filling avoids skewing the demographic join), multipart preserved (detached served pockets are real).</li>
+    <li><b>IoU floor = the success metric</b> — median ≥ T1 <em>and</em> ≥ N/25 sites ≥ 0.5, with T1/N
+    set <em>after</em> seeing the table (this snapshot). The sweep is a hard stop for human input, not an
+    auto-pick.</li>
+    <li><b>Census blocks are a candidate</b> (source: statewide NC TIGER 2020, filtered to the city
+    <code>COUNTYFP20='063'</code>) — tested and beaten, per above.</li>
+    <li><b>QC → GeoPackage</b> (multi-layer, network + delineation flags), <b>satellite basemap</b>
+    default, <b>build-custom verdict</b> (no portable Python tool does this).</li>
+  </ul>
+
+  <h2><span class="n">4</span>Roadmap status</h2>
+  <table>
+    <tr><th>Item</th><th>State</th><th>Note</th></tr>
+    <tr><td>B1 boundary methods (<code>boundary.py</code>)</td><td><span class="pill p-done">done</span></td><td>4 methods, holes/parts verified</td></tr>
+    <tr><td>B2 unit generalize + radius decouple</td><td><span class="pill p-done">done</span></td><td>4,401 the city blocks load; QC ribbon preserved</td></tr>
+    <tr><td>B3 validation sweep (<code>validation.py</code>)</td><td><span class="pill p-done">done</span></td><td>full sweep ran; overlay writer tested</td></tr>
+    <tr><td>B4 parcels + boundary shapefiles</td><td><span class="pill p-done">done</span></td><td>17506 → 832 ac parcels / 977 ac boundary</td></tr>
+    <tr><td>Thread A — QC GeoPackage</td><td><span class="pill p-done">done</span></td><td>both flag schemas, layered by type</td></tr>
+    <tr><td>Basemaps (<code>pdf_maps.py</code>)</td><td><span class="pill p-done">done</span></td><td>satellite/street, offline-safe</td></tr>
+    <tr><td>Code review (AI_HOME gate)</td><td><span class="pill p-done">done</span></td><td>0 confirmed; 1 latent bug found manually + fixed</td></tr>
+    <tr><td>Set IoU-floor T1/N</td><td><span class="pill p-hold">your call</span></td><td>recommend <code>0.75 / 20</code>, then re-run sweep</td></tr>
+    <tr><td>Diagnose 03442 / 02201 zero-overlap</td><td><span class="pill p-open">open</span></td><td>pumped? bad match? upstream flip?</td></tr>
+    <tr><td>Phase 7 <code>run.py</code> orchestrator</td><td><span class="pill p-open">open</span></td><td>folds phases once method is locked</td></tr>
+    <tr><td>Demographic join (ACS/NHGIS)</td><td><span class="pill p-open">deferred</span></td><td>Hill &amp; Larsen model; blocks already staged</td></tr>
+  </table>
+
+  <p><b>Next step:</b> set <code>iou_floor_median: 0.75</code> and <code>iou_floor_n_sites: 20</code> in
+  <code>config.yaml</code>, then <code>python run_validation.py --sweep</code> — it auto-picks the winner
+  and writes <code>output/validation_overlay.gpkg</code> (truth vs. generated per site) for GIS review.</p>
+
+  <h2><span class="n">5</span>Pipeline (Phase 8 additions in blue)</h2>
+  <div class="flow">
+    <span class="box">config</span><span class="arw">→</span>
+    <span class="box">graph build</span><span class="arw">→</span>
+    <span class="box">upstream trace</span><span class="arw">→</span>
+    <span class="box new">select units<br>(parcels / blocks)</span><span class="arw">→</span>
+    <span class="box new">build_boundary<br>(morph_close…)</span><span class="arw">→</span>
+    <span class="box new">parcels.shp +<br>boundary.shp</span>
+  </div>
+  <div class="flow">
+    <span class="box new">validation sweep</span><span class="arw">→</span>
+    <span class="box new">IoU table + overlay.gpkg</span>
+    <span class="arw" style="margin:0 10px">·</span>
+    <span class="box new">QC flags → qc_flags.gpkg</span>
+    <span class="arw" style="margin:0 10px">·</span>
+    <span class="box new">PDF maps + satellite basemap</span>
+  </div>
+
+  <div class="note">
+    Docs housekeeping (for a later <code>/wrap</code>, not this snapshot): once you set the floor and
+    the winner is locked, the roadmap's Phase-8 "primary method" line and the <code>config.yaml</code>
+    defaults (<code>selection_radius_ft</code>/<code>close_radius_ft</code>) should be updated to the
+    winning values.
+  </div>
+
+  <div class="foot">
+    Snapshot generated 2026-07-01. Sources: this session · <a href="decision_log.md">decision_log.md</a>
+    · <a href="roadmap.md">roadmap.md</a> · <code>output/validation_sweep.csv</code>.
+  </div>
+
+</div>
+</body>
+</html>

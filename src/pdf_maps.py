@@ -13,6 +13,52 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
 from shapely.geometry import box, Point
 
+# contextily is optional — maps still render without it (just no basemap).
+try:
+    import contextily as ctx
+    _HAS_CTX = True
+except ImportError:
+    _HAS_CTX = False
+
+# basemap_style -> tile provider. Satellite is the default per decision_log.
+_BASEMAP_PROVIDERS = {
+    "satellite": ("Esri", "WorldImagery"),
+    "street":    ("CartoDB", "Positron"),
+}
+
+
+def _add_basemap(ax, crs, style) -> None:
+    """
+    Draw a tile basemap under the current axes, or degrade gracefully.
+
+    contextily is handed the *data* CRS (EPSG:2264) and warps the tiles to match,
+    so the plot stays in feet — the ft scale bar, arrows, and axis labels are
+    unaffected (no need to reproject the data to Web Mercator). Requires internet
+    at map time; any failure (offline, missing contextily, unknown style) is
+    caught and the map is drawn without a basemap.
+    """
+    if not style:
+        return
+    if not _HAS_CTX:
+        print("  [warn] contextily not installed — basemap skipped "
+              "(pip install contextily)")
+        return
+    if style not in _BASEMAP_PROVIDERS:
+        print(f"  [warn] unknown basemap_style '{style}' — basemap skipped")
+        return
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    try:
+        prov, name = _BASEMAP_PROVIDERS[style]
+        source = getattr(getattr(ctx.providers, prov), name)
+        # zorder 0 keeps the imagery beneath the data (plotted at zorder >= 2).
+        ctx.add_basemap(ax, crs=crs, source=source, attribution_size=5, zorder=0)
+    except Exception as e:  # network error, tile fetch failure, etc.
+        print(f"  [warn] basemap unavailable ({style}: {type(e).__name__}) — "
+              "drawing without it")
+    # add_basemap can nudge the limits; restore the intended frame.
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
 
 def generate_qa_maps(
     pipes: gpd.GeoDataFrame,
@@ -20,6 +66,7 @@ def generate_qa_maps(
     flags: list[dict],
     output_path: str,
     context_buffer_ft: float,
+    basemap_style: str = None,
 ) -> None:
     """
     Write a multi-page PDF with one map per flag.
@@ -30,6 +77,7 @@ def generate_qa_maps(
         flags            List of flag dicts from network_qa.run_qa()
         output_path      Path for the output PDF
         context_buffer_ft  Zoom window half-width in feet
+        basemap_style    'satellite' | 'street' | None (no basemap)
     """
     if not flags:
         print("No flags to map.")
@@ -37,7 +85,8 @@ def generate_qa_maps(
 
     with PdfPages(output_path) as pdf:
         for i, flag in enumerate(flags):
-            fig = _make_flag_page(pipes, manholes, flag, context_buffer_ft, i + 1, len(flags))
+            fig = _make_flag_page(pipes, manholes, flag, context_buffer_ft,
+                                  i + 1, len(flags), basemap_style)
             pdf.savefig(fig)
             plt.close(fig)
             if (i + 1) % 100 == 0:
@@ -53,6 +102,7 @@ def _make_flag_page(
     context_buffer_ft: float,
     page_num: int,
     total_pages: int,
+    basemap_style: str = None,
 ) -> plt.Figure:
     loc: Point = flag["geometry"]
     buf = context_buffer_ft
@@ -111,6 +161,9 @@ def _make_flag_page(
     ax.set_xlabel("Easting (ft, EPSG:2264)", fontsize=7)
     ax.set_ylabel("Northing (ft, EPSG:2264)", fontsize=7)
 
+    # --- Basemap (under the network) ---
+    _add_basemap(ax, pipes.crs, basemap_style)
+
     # --- Scale bar ---
     _draw_scale_bar(ax, loc.x - buf * 0.9, loc.y - buf * 0.88, scale_ft=500)
 
@@ -146,6 +199,7 @@ def generate_sewershed_map(
     manhole_id: str,
     area_acres: float,
     output_path: str,
+    basemap_style: str = None,
 ) -> None:
     """
     Write a one-page overview PDF for a delineated sewershed (Phase 6).
@@ -166,9 +220,12 @@ def generate_sewershed_map(
     """
     fig, ax = plt.subplots(figsize=(11, 8.5))
 
+    # When a satellite/street basemap is drawn, make the parcel fill translucent
+    # so the imagery shows through; otherwise keep the solid fill.
+    fill_alpha = 0.5 if basemap_style else 1.0
     if not served.empty:
         served.plot(ax=ax, facecolor="#C8E6C9", edgecolor="#7CB342",
-                    linewidth=0.3, zorder=2)
+                    linewidth=0.3, alpha=fill_alpha, zorder=2)
 
     if buffer_geom is not None and not buffer_geom.is_empty:
         gpd.GeoSeries([buffer_geom], crs=served.crs).boundary.plot(
@@ -196,6 +253,9 @@ def generate_sewershed_map(
     ax.tick_params(labelsize=7)
     ax.set_xlabel("Easting (ft, EPSG:2264)", fontsize=7)
     ax.set_ylabel("Northing (ft, EPSG:2264)", fontsize=7)
+
+    # --- Basemap (under the served parcels) ---
+    _add_basemap(ax, served.crs, basemap_style)
 
     _draw_scale_bar(ax, minx - pad + (maxx - minx) * 0.04,
                     miny - pad + (maxy - miny) * 0.04, scale_ft=1000)

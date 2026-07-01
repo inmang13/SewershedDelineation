@@ -119,6 +119,67 @@ Option: `python run.py --config config.yaml --qa-only` to run just the network Q
 
 ---
 
+### Phase 8 — service-area matching pipeline + QC spatial output + basemaps
+
+**Status (2026-07-01): BUILT & tested — awaiting IoU-floor decision.** All modules written, imported
+clean, exercised on real data; full sweep ran (960 rows). **morph_close wins: median IoU 0.79** (up
+from 0.64), 20/21 aggregate sites ≥ 0.5, robust across sel_r 50–150 × close 50–150. Census-block
+methods lost (overshoot). Code-review gate passed (0 confirmed findings; one latent overlay bug found
+in manual pass + fixed). **Next action: set `iou_floor_median` + `iou_floor_n_sites` in config
+(recommend 0.75 / 20), then re-run `python run_validation.py --sweep` to auto-pick the winner and write
+`validation_overlay.gpkg`.** See `docs/SewershedDelineation_checkin_2026-07-01.html`.
+
+Phases 1–6 dissolve served **parcels** into a polygon (median IoU 0.64 vs the hand-drawn truth set).
+Two problems drive this phase, plus two add-ons:
+
+1. **Parcels don't tile the landscape** — `served.union_all()` is full of holes (streets/ROW) and
+   doesn't resemble the truth polygons. Automate Grace's manual method (select near sewer → buffer →
+   fill holes → dissolve → shrink back) as a morphological *close*, and empirically pick the best
+   boundary method against the 25-site validation set.
+2. **QC lives only in CSV** — cross-referencing against GIS is painful. Emit a spatial QC layer.
+3. Maps need a **basemap** for orientation.
+4. **Empirically tune** boundary method + radii against the validation set rather than guessing.
+
+Research verdict (settled): build custom (no portable Python tool does WBE service-area delineation
+from pipe network + parcels); borrow `shapely.concave_hull` as a candidate and Hill & Larsen 2023
+census-block apportionment for the eventual demographic join.
+
+**Thread B — matching pipeline + sweep (built first; the research contribution):**
+- `src/boundary.py` (new) — `build_boundary(served, method, **params)` with four candidates:
+  `morph_close` (buffer +r → fill ALL holes → buffer −r, keep ALL parts; the primary method),
+  `blocks_dissolve`, `hybrid` (parcels + gap-filling blocks, then close), `concave`
+  (`shapely.concave_hull`). Shared `fill_holes` / `keep_all_parts` helpers.
+- `src/population_join.py` (modify) — accept parcels **or** census blocks as the unit
+  (`load_census_blocks`: reproject EPSG:4269→2264, filter `COUNTYFP20 == '063'`). Split
+  `selection_radius_ft` out of `pipe_buffer_distance_ft`; **keep the thin pipe buffer as the QC
+  ribbon** so `low_population_match` doesn't misfire when selection radius grows.
+- `src/validation.py` (new) — sweep `method × selection_radius × close_radius` against the 25 truth
+  polygons (`Sampling_Polygons_05212026.shp` + `Sampling_Locations_05212026.shp` in
+  CommunityWastewaterDashboard). Join **truth `SiteID` == location `AssetID_tx`** (fail loud if not
+  ~24 matched pairs); snap point geometry → trace → assign → boundary → IoU. Print the full table;
+  drop terminal **30804** from the aggregate, tag **03442/02201**. Emit `output/validation_overlay.gpkg`
+  (truth + generated_parcels + generated_boundary, per-site IoU). **IoU-floor (median ≥ T1 and
+  ≥ N/25 sites ≥ 0.5) is a hard stop: run sweep → print table → get T1/N from Grace → finalize winner.**
+- `src/polygon_output.py` (modify) — emit `output/sewershed_parcels.shp` (intermediate) +
+  `output/sewershed_boundary.shp` (final) + feed the overlay.
+
+**Thread A — QC → GeoPackage (after B):** write network + delineation flags to `output/qc_flags.gpkg`
+(point/line geometry), layered by type/severity, alongside the existing CSVs. Normalize the two flag
+schemas (network `pipe_id` vs delineation `manhole`).
+
+**Basemaps:** `src/pdf_maps.py` (modify) — `contextily` basemaps on both map functions; reproject the
+plot to EPSG:3857 for tile display only (data stays 2264 on disk). `basemap_style`: `satellite`
+(Esri World Imagery) default | `street` (CartoDB Positron). Degrade gracefully offline.
+
+**Config + deps:** `boundary_method`, `selection_radius_ft`, `close_radius_ft`, `basemap_style`,
+census-block inputs, validation paths, IoU-floor thresholds (deferred), new output paths.
+`pip install contextily`; `shapely>=2.0` confirmed (2.1.2).
+
+Data: census blocks supplied at `data/the city Blocks/tl_2021_37_tabblock20.shp` (statewide NC TIGER
+2020, EPSG:4269; sibling `nhgis0002_csv/` is demographics for the deferred join).
+
+---
+
 ## Deferred / Future
 
 - **Socioeconomic stats:** Join output polygon to ACS census data (race, income, poverty).
@@ -131,6 +192,11 @@ Option: `python run.py --config config.yaml --qa-only` to run just the network Q
 
 ## Open Questions
 
+- **Phases 2 & 3 status:** both are built (`network_qa.py`, `graph_builder.py`) but never got
+  their ✓ COMPLETE marker. Verify they're actually done — graph_builder owns the direction
+  inference Phase 4 depends on — before wiring Phase 7. **This is the next action.**
+- **`low_population_match` threshold (0.5) is untuned:** no validation set. Watch whether it
+  mis-fires on legitimate catchments once more sites are run; adjust `low_population_match_min_buffer_coverage`.
 - **Lift-station / pumped sites:** 3 of 24 validation sites (30804, 03442, 02201) have zero overlap
   with the hand-drawn truth polygons. 30804 (Garrett Rd) is a known lift station — pumped systems can't
   be reproduced by gravity tracing. Need to confirm whether 03442 and 02201 are also pumped, and decide

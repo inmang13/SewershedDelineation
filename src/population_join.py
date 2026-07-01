@@ -28,14 +28,22 @@ class PopulationResult:
 
     Attributes
     ----------
-    served      GeoDataFrame of parcels intersecting the upstream buffer
-    buffer      the dissolved buffer geometry (None if no upstream pipes)
-    n_served    parcel count
+    served      GeoDataFrame of units (parcels or blocks) intersecting the
+                selection buffer
+    buffer      the dissolved selection buffer (radius = selection_radius_ft;
+                None if no upstream pipes) — this is what selected the units
+    qc_buffer   the thin QC ribbon (radius = pipe_buffer_distance_ft) used by
+                Phase 6's low_population_match. Decoupled from `buffer` so that
+                widening the selection radius doesn't fatten the QC ribbon and
+                make the coverage flag misfire. Defaults to `buffer` when a
+                separate QC radius isn't supplied.
+    n_served    unit count
     """
 
-    def __init__(self, served, buffer):
+    def __init__(self, served, buffer, qc_buffer=None):
         self.served = served
         self.buffer = buffer
+        self.qc_buffer = qc_buffer if qc_buffer is not None else buffer
         self._dissolved = None
         self._dissolved_cached = False
 
@@ -89,6 +97,51 @@ def load_population_units(cfg: dict) -> gpd.GeoDataFrame:
     return par
 
 
+def load_census_blocks(cfg: dict) -> gpd.GeoDataFrame:
+    """
+    Load census blocks as an alternate population unit, reprojected to the working
+    CRS and filtered to the target county.
+
+    The TIGER block file ships a .prj (EPSG:4269 geographic), so — unlike the
+    parcels — no CRS assignment is needed; it is reprojected to parameters.crs.
+    The file is statewide (~230k blocks for NC), so it is filtered to
+    inputs.census_blocks_county_fips (COUNTYFP20) up front for speed. Empty/null
+    geometries are dropped.
+    """
+    inp    = cfg["inputs"]
+    params = cfg["parameters"]
+    path = inp.get("census_blocks_shapefile")
+    if not path:
+        raise ValueError("inputs.census_blocks_shapefile is not set — cannot use "
+                         "census blocks as a population unit")
+    blk = gpd.read_file(path)
+    if blk.crs is None:
+        declared = inp.get("census_blocks_crs")
+        if not declared:
+            raise ValueError("census block layer has no CRS and "
+                             "inputs.census_blocks_crs is not set")
+        blk = blk.set_crs(declared)
+    fips = inp.get("census_blocks_county_fips")
+    if fips is not None and "COUNTYFP20" in blk.columns:
+        blk = blk[blk["COUNTYFP20"] == str(fips)]
+    blk = blk.to_crs(params["crs"])
+    blk = blk[blk.geometry.notna() & ~blk.geometry.is_empty].reset_index(drop=True)
+    return blk
+
+
+def load_units(cfg: dict, unit_layer: str = "parcels") -> gpd.GeoDataFrame:
+    """
+    Load the chosen population-unit layer: 'parcels' (default) or 'blocks'.
+    A thin dispatcher so callers can select the unit without knowing which loader
+    applies.
+    """
+    if unit_layer == "parcels":
+        return load_population_units(cfg)
+    if unit_layer == "blocks":
+        return load_census_blocks(cfg)
+    raise ValueError(f"unknown unit_layer '{unit_layer}'; expected 'parcels' or 'blocks'")
+
+
 def buffer_upstream_pipes(pipes: gpd.GeoDataFrame, pidx_list, buffer_ft: float):
     """Dissolved buffer around the upstream pipes. Returns None if none given."""
     if not pidx_list:
@@ -98,23 +151,41 @@ def buffer_upstream_pipes(pipes: gpd.GeoDataFrame, pidx_list, buffer_ft: float):
 
 def assign_population_units(pipes: gpd.GeoDataFrame,
                             pidx_list,
-                            parcels: gpd.GeoDataFrame,
-                            buffer_ft: float) -> PopulationResult:
+                            units: gpd.GeoDataFrame,
+                            selection_radius_ft: float,
+                            qc_buffer_ft: float = None) -> PopulationResult:
     """
-    Select parcels served by the upstream pipe set (intersect-any rule).
+    Select population units served by the upstream pipe set (intersect-any rule).
 
     Parameters
     ----------
-    pipes      full gravity-main GeoDataFrame (pidx indexes into it)
-    pidx_list  positional pipe indices from TraversalResult.pidx_list
-    parcels    population-unit layer (from load_population_units)
-    buffer_ft  buffer distance around pipes (pipe_buffer_distance_ft)
+    pipes                full gravity-main GeoDataFrame (pidx indexes into it)
+    pidx_list            positional pipe indices from TraversalResult.pidx_list
+    units                population-unit layer (parcels or blocks; from load_units)
+    selection_radius_ft  buffer distance around pipes for unit selection
+                         (selection_radius_ft). A unit is served if it touches
+                         this buffer at all.
+    qc_buffer_ft         optional thin QC-ribbon radius (pipe_buffer_distance_ft)
+                         carried on the result for Phase 6's low_population_match.
+                         When None, the QC ribbon defaults to the selection buffer.
+
+    The selection radius and the QC ribbon are separate on purpose: the sweep
+    widens `selection_radius_ft` to capture the true served area, while the QC
+    coverage check must stay measured against the original thin pipe buffer or it
+    would always look "well covered".
     """
-    buf = buffer_upstream_pipes(pipes, pidx_list, buffer_ft)
+    buf = buffer_upstream_pipes(pipes, pidx_list, selection_radius_ft)
     if buf is None or buf.is_empty:
-        return PopulationResult(parcels.iloc[0:0].copy(), buf)
+        return PopulationResult(units.iloc[0:0].copy(), buf, buf)
 
     # Spatial-index prefilter then exact intersects test (intersect-any rule).
-    cand = parcels.sindex.query(buf, predicate="intersects")
-    served = parcels.iloc[sorted(cand)].copy()
-    return PopulationResult(served, buf)
+    cand = units.sindex.query(buf, predicate="intersects")
+    served = units.iloc[sorted(cand)].copy()
+
+    # Thin QC ribbon, only if a distinct radius is requested (avoids a second
+    # buffer op when it would equal the selection buffer anyway).
+    if qc_buffer_ft is not None and qc_buffer_ft != selection_radius_ft:
+        qc_buf = buffer_upstream_pipes(pipes, pidx_list, qc_buffer_ft)
+    else:
+        qc_buf = buf
+    return PopulationResult(served, buf, qc_buf)

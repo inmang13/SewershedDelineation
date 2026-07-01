@@ -342,3 +342,60 @@ only. Headwater 18177 → `no_upstream_found` (review_required), no polygon writ
 flags.csv always written (header even when clean). Overview map verified visually
 (`output/preview_png/sewershed_17506_map.png`). Phases remaining: 7 (integration); 2 & 3 built
 but never marked ✓ in roadmap — worth a status check before Phase 7.
+
+## 2026-07-01 — Phase 8: service-area matching pipeline + QC spatial output + basemaps
+
+**Decision:** Replace the raw parcel-dissolve polygon with an empirically-chosen **boundary method**,
+selected by sweeping four candidates against the 25 truth polygons. Candidates: (a) parcels +
+**morphological close** (buffer +r → fill ALL holes → buffer −r, keep ALL parts), (b) census-blocks
+dissolved, (c) hybrid (blocks fill parcel gaps, then close), (d) concave hull (`shapely.concave_hull`).
+**Rationale:** The dissolved parcel union is full of holes (parcels omit streets/ROW) and doesn't
+resemble the hand-drawn truth polygons; median IoU 0.64 leaves headroom. Rather than guess distances,
+tune method + radii against the validation set. `morph_close` is the locked *primary* method (automates
+Grace's manual workflow); the others are compared, IoU decides.
+
+**Decision:** **Fill ALL holes** → single solid polygon per part, and **keep ALL parts** (multipart).
+**Rationale:** Interior holes are lakes/cemeteries/ROW with no served population — filling them avoids
+skewing the eventual parcel demographic join, and matches how the truth polygons were drawn.
+Disconnected served fragments are real (a pumped sub-area, a detached served pocket), so keep them.
+
+**Decision:** **Success metric = IoU floor** — median IoU ≥ T1 **and** ≥ N/25 sites ≥ 0.5. **T1 and N
+are deliberately left unset** until the first sweep reveals the achievable ceiling; Grace sets them
+after seeing the full printed table. **Rationale:** Setting a floor before knowing what's achievable
+either lowballs (accepts a bad method) or is impossible (rejects the best method). The sweep is a hard
+stop for human input, not an auto-pick.
+
+**Decision:** Census blocks are a **candidate boundary unit and population unit**, not just parcels.
+Source: `data/the city Blocks/tl_2021_37_tabblock20.shp` (statewide NC TIGER 2020, EPSG:4269; filter
+`COUNTYFP20 == '063'`, reproject to 2264 on load). **Rationale:** Blocks *tile* the landscape — exactly
+the "parcels leave gaps" problem — so blocks-dissolved is a plausible sweep winner, and Hill & Larsen
+2023 establishes census-block apportionment as the WBE standard for the downstream demographic join.
+
+**Decision:** Split **`selection_radius_ft`** (unit selection, swept) from **`pipe_buffer_distance_ft`**
+(kept as the thin QC ribbon). **Rationale:** `low_population_match` measures `sewershed ∩ buffer /
+buffer.area` against the selection buffer; if selection radius grows during the sweep, the ribbon
+fattens and the flag misfires. Keeping the QC ribbon on its own thin buffer preserves the flag's meaning.
+
+**Decision:** Validation join is **truth `SiteID` == sampling-location `AssetID_tx`** (not FACILITYID —
+the points layer has no FACILITYID field; all three ids are the same space, log 2026-06-28). The sweep
+snaps the point *geometry* to the graph node (geometry-first), and **asserts ~24 matched pairs, aborting
+loudly otherwise.** **Rationale:** The join is the linchpin of the research deliverable; a silent
+mismatch yields an all-garbage IoU table. Drop terminal/pumped **30804** from the aggregate; keep
+**03442/02201** in but tagged for later diagnosis.
+
+**Decision:** QC flags emitted to a **GeoPackage** (`output/qc_flags.gpkg`, multi-layer by type/severity)
+alongside the existing CSVs, covering both network flags (`network_qa`, keyed `pipe_id`) and delineation
+flags (`polygon_output`, keyed `manhole`). **Rationale:** Cross-referencing a CSV against GIS to find a
+problem pipe is painful; a spatial layer lets the maintainer filter and zoom directly. CSV stays for
+non-GIS review.
+
+**Decision:** Basemap default = **satellite** (Esri World Imagery via `contextily`), config toggle to
+`street` (CartoDB Positron). Plot reprojected to **EPSG:3857 for tile display only** (data stays 2264
+on disk); degrade gracefully (skip basemap + warn) when offline. **Rationale:** Field crews and
+reviewers orient faster on imagery; requiring internet at map time shouldn't break headless runs.
+
+**Research verdict:** Build custom — no portable Python tool does WBE service-area delineation from a
+pipe network + parcels (SewerGEMS/InfoSewer/ArcGIS UN need licensed platforms; DEM stream-burning is
+the wrong paradigm for a known pipe network; `sewergraph` validates the architecture but produces no
+service-area polygon). Borrow `shapely.concave_hull` (candidate) and Hill & Larsen 2023 (census-block
+apportionment for the demographic join).

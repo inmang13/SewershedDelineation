@@ -35,6 +35,8 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
 
+from boundary import build_boundary
+
 SQFT_PER_ACRE = 43560.0
 
 # Default delineation-flag thresholds, overridable from config["parameters"].
@@ -114,12 +116,15 @@ def compute_flags(res, pop, params: dict) -> list[dict]:
             "geometry": sewershed.centroid,
         })
 
-    # low_population_match — fraction of the buffer ribbon that has a served parcel
-    # on it. `sewershed` is already the dissolved served union (cached), so reuse it
-    # rather than dissolving the parcels again.
-    if pop.buffer is not None and not pop.buffer.is_empty and pop.buffer.area > 0:
-        covered = sewershed.intersection(pop.buffer).area
-        frac = covered / pop.buffer.area
+    # low_population_match — fraction of the thin QC ribbon that has a served parcel
+    # on it. Uses `pop.qc_buffer` (the pipe_buffer_distance_ft ribbon), NOT the
+    # selection buffer: the selection radius may be widened for delineation, but the
+    # coverage check must stay measured against the thin ribbon or it always reads
+    # as fully covered. `sewershed` is the cached dissolved served union.
+    qc_ribbon = pop.qc_buffer
+    if qc_ribbon is not None and not qc_ribbon.is_empty and qc_ribbon.area > 0:
+        covered = sewershed.intersection(qc_ribbon).area
+        frac = covered / qc_ribbon.area
         min_frac = params.get("low_population_match_min_buffer_coverage",
                               DEFAULT_MIN_BUFFER_COVERAGE)
         if frac < min_frac:
@@ -156,6 +161,52 @@ def build_sewershed_gdf(res, pop, params: dict):
             "max_depth":  [res.max_depth],
         },
         geometry=[sewershed],
+        crs=params["crs"],
+    )
+
+
+def build_boundary_gdf(res, params: dict, served_gdf, served_union=None,
+                       blocks_gdf=None):
+    """
+    One-row GeoDataFrame for output/sewershed_boundary.shp — the final *seamless*
+    polygon, or None if there's nothing to build.
+
+    Distinct from build_sewershed_gdf, which returns the raw dissolved served
+    union (the gappy intermediate, output/sewershed_parcels.shp). This applies the
+    configured boundary_method (morph_close / blocks_dissolve / hybrid / concave)
+    to fill the street/ROW gaps into a solid, truth-like polygon.
+
+    Parameters
+    ----------
+    res           TraversalResult (for the manhole id).
+    params        cfg["parameters"] — supplies boundary_method, close_radius_ft,
+                  concave_ratio.
+    served_gdf    the served units the method operates on: parcels for
+                  morph_close/hybrid/concave, selected census blocks for
+                  blocks_dissolve.
+    served_union  optional precomputed dissolved union of served_gdf (reuse the
+                  memoized PopulationResult.dissolve()).
+    blocks_gdf    county blocks for gap-filling (hybrid only).
+    """
+    if served_gdf is None or served_gdf.empty:
+        return None
+    method = params["boundary_method"]
+    geom = build_boundary(
+        served_gdf, method,
+        close_ft=params.get("close_radius_ft", 100.0),
+        concave_ratio=params.get("concave_ratio", 0.3),
+        blocks_gdf=blocks_gdf,
+        served_union=served_union,
+    )
+    if geom is None or geom.is_empty:
+        return None
+    return gpd.GeoDataFrame(
+        {
+            "manhole":    [str(res.source_value)],
+            "area_acres": [round(_acres(geom), 2)],
+            "method":     [method],
+        },
+        geometry=[geom],
         crs=params["crs"],
     )
 
