@@ -23,7 +23,7 @@ import geopandas as gpd
 
 # Field names kept short and DBF-safe even though GPKG allows long names, so the
 # layer is portable if ever exported to shapefile.
-QC_FIELDS = ["source", "feat_id", "flag_type", "severity", "descr"]
+QC_FIELDS = ["source", "feat_id", "flag_type", "severity", "review", "descr"]
 
 
 def _normalize(flags: list[dict]) -> list[dict]:
@@ -39,6 +39,7 @@ def _normalize(flags: list[dict]) -> list[dict]:
             "feat_id":   str(f.get("pipe_id", f.get("manhole", ""))),
             "flag_type": f.get("flag_type", ""),
             "severity":  f.get("severity", ""),
+            "review":    f.get("review_status", ""),
             "descr":     f.get("description", ""),
             "geometry":  geom,
         })

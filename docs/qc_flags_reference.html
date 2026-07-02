@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QC Flag Reference — SewershedDelineation</title>
+<style>
+  :root {
+    --review: #c0392b;
+    --review-bg: #fdecea;
+    --warn: #b9770e;
+    --warn-bg: #fdf6e3;
+    --ink: #2c3e50;
+    --muted: #7f8c8d;
+    --line: #e3e8ec;
+    --accent: #2471a3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    margin: 0;
+    background: #fafbfc;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 2.2rem 1.4rem 4rem; }
+  h1 { font-size: 1.7rem; margin: 0 0 .3rem; }
+  .sub { color: var(--muted); margin-bottom: 1.6rem; }
+  h2 {
+    font-size: 1.25rem; margin: 2.4rem 0 .8rem;
+    padding-bottom: .3rem; border-bottom: 2px solid var(--line);
+  }
+  .legend { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0 0; }
+  .legend > div {
+    flex: 1 1 300px; border-radius: 8px; padding: .9rem 1.1rem;
+    border: 1px solid var(--line);
+  }
+  .legend .rr { background: var(--review-bg); border-color: #f2c4be; }
+  .legend .wn { background: var(--warn-bg); border-color: #ecd9a8; }
+  .badge {
+    display: inline-block; font-size: .72rem; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase;
+    padding: .15rem .55rem; border-radius: 99px; vertical-align: middle;
+  }
+  .badge.rr { background: var(--review); color: #fff; }
+  .badge.wn { background: var(--warn); color: #fff; }
+  .badge.mix { background: linear-gradient(90deg, var(--warn) 50%, var(--review) 50%); color: #fff; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    padding: 1.1rem 1.3rem; margin-bottom: 1rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .card h3 {
+    margin: 0 0 .45rem; font-size: 1.05rem;
+    font-family: Consolas, "Cascadia Code", monospace;
+  }
+  .card h3 .count { color: var(--muted); font-family: inherit; font-weight: 400; font-size: .85rem; }
+  .row { display: grid; grid-template-columns: 110px 1fr; gap: .15rem .8rem; margin-top: .5rem; }
+  .row dt { font-weight: 600; color: var(--muted); font-size: .85rem; }
+  .row dd { margin: 0; font-size: .95rem; }
+  code {
+    font-family: Consolas, "Cascadia Code", monospace; font-size: .88em;
+    background: #eef2f5; padding: .08em .35em; border-radius: 4px;
+  }
+  table { border-collapse: collapse; width: 100%; margin-top: .8rem; font-size: .92rem; }
+  th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+  .note {
+    background: #eaf3fa; border-left: 4px solid var(--accent);
+    padding: .8rem 1.1rem; border-radius: 0 8px 8px 0; margin: 1rem 0;
+  }
+  .foot { color: var(--muted); font-size: .85rem; margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>QC Flag Reference</h1>
+<div class="sub">SewershedDelineation — geometry-first QA on the shared network graph.
+Counts from the full run of 2026-07-02 (38,359 pipes, 1,066 flags).</div>
+
+<div class="note">
+<strong>How to read severity.</strong> The design is geometry-first: the digitized line direction is
+the authoritative flow direction; attribute fields (FROMMH/TOMH, inverts, slope) are cross-checks only.
+So a flag is <em>review_required</em> only when it can silently produce a <strong>wrong sewershed</strong>.
+Everything else is a <em>warning</em> — data hygiene for the GIS maintainer, safe to batch-review or defer.
+</div>
+
+<div class="legend">
+  <div class="rr"><span class="badge rr">review_required</span><br>
+  Can corrupt a traced catchment. Look at each one — currently 45 total
+  (44 unconnected snap gaps + 1 directed cycle). Each mapped type gets a PDF page.</div>
+  <div class="wn"><span class="badge wn">warning</span><br>
+  Attribute cleanup or informational. The tool already handles these correctly;
+  fix in the source layer when convenient (1,021 total).</div>
+</div>
+
+<h2>Where flags live</h2>
+<table>
+  <tr><th>Output</th><th>Contents</th></tr>
+  <tr><td><code>output/network_qa_flags.csv</code></td><td>All network flags, one row each (UTF-8; type, severity, pipe/manhole ID, x/y, description).</td></tr>
+  <tr><td><code>output/qc_flags.gpkg</code></td><td>Same flags as spatial layers, one layer per type: <code>net_&lt;flag_type&gt;</code> (network) and <code>delin_&lt;flag_type&gt;</code> (delineation). Filter and zoom in GIS.</td></tr>
+  <tr><td><code>output/network_qa_maps.pdf</code></td><td>One zoomed page per flag of the types in config <code>pdf_flag_types</code>. <strong>missing_direction is deliberately excluded</strong> — direction is inferred from geometry, no review needed.</td></tr>
+  <tr><td><code>output/gravity_mains_repaired.shp</code></td><td>Pipe layer + <code>QA_STATUS</code> (original / flagged / direction_inferrable) and <code>QA_FLAGS</code> columns. Name is historical — QA never modifies geometry or direction.</td></tr>
+  <tr><td><code>output/flags.csv</code> + <code>flag_maps.pdf</code></td><td>Delineation flags (per traced sewershed, not per pipe).</td></tr>
+</table>
+
+<h2>Network flags <span style="font-weight:400;color:var(--muted)">(src/network_qa.py — per pipe or manhole)</span></h2>
+
+<div class="card">
+<h3>snap_gap — unconnected tier <span class="badge rr">review_required</span> <span class="count">— 44 flags</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>Two graph nodes ≤ 20 ft apart that share no pipe and survived the 10 ft end-node repair as separate nodes (includes end↔junction pairs, which the repair never merges — 7 of these sit <em>inside</em> the 10 ft radius).</dd>
+  <dt>Means</dt><dd>The pipes genuinely <strong>do not connect</strong> in the traced network. A trace through this area stops short and drops the upstream catchment.</dd>
+  <dt>Action</dt><dd>Highest-value fix list. Check each in GIS: if the pipes physically connect, snap the endpoints in the source layer; if it's a real dead end (e.g. abandoned stub), no action.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>directed_cycle <span class="badge rr">review_required</span> <span class="count">— 1 flag</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>A small directed loop (≤ 10 nodes). Gravity flow can't circulate, so one or two pipes are digitized backwards.</dd>
+  <dt>Means</dt><dd>Any trace through the loop can walk the wrong way. the city has exactly one: pipes <code>08373 / 08374</code> (no sample site touches it).</dd>
+  <dt>Action</dt><dd>Flip the backwards pipe's digitized direction in the source layer.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>large_cycle <span class="badge rr">review_required</span> <span class="count">— 0 flags (none since geometry-first)</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>A big strongly-connected tangle (&gt; 10 nodes) — systematic direction errors stitching the tree into a loop.</dd>
+  <dt>Means</dt><dd>Was an attribute-era problem (one 270-node tangle); geometry-first direction eliminated it. If it ever reappears, <code>large_cycle_suspects.csv</code> lists member pipes with invert/slope suspects sorted to the top.</dd>
+  <dt>Action</dt><dd>Work the suspects CSV top-down; no map page (a citywide loop map shows nothing useful).</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>snap_gap — repaired tier <span class="badge wn">warning</span> <span class="count">— 13 flags</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>Pipe end nodes 1–10 ft apart, auto-connected by the graph's pass-2 end-node repair.</dd>
+  <dt>Means</dt><dd>Tracing works — the tool bridges the gap. But the source geometry is offset and any other software reading the layer will see a break.</dd>
+  <dt>Action</dt><dd>Snap the endpoints in the source layer when convenient. Not urgent for this tool's results.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>missing_direction <span class="badge wn">warning</span> <span class="count">— 112 flags · no PDF page</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>FROMMH or TOMH is null.</dd>
+  <dt>Means</dt><dd><strong>Direction is inferred from geometry</strong> (start point = upstream) — the pipe is marked <code>QA_STATUS = direction_inferrable</code> and traces correctly. <strong>You do not need to review these.</strong> Purely an attribute-completeness note for the maintainer.</dd>
+  <dt>Action</dt><dd>Maintainer can backfill FROMMH/TOMH from the manhole layer at leisure.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>invert_conflict <span class="badge wn">warning</span> <span class="count">— 267 flags</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>Recorded invert elevations imply uphill flow relative to the digitized direction (upstream invert lower than downstream; inverts ≤ 0 are treated as no-data and skipped).</dd>
+  <dt>Means</dt><dd>Either the invert fields are wrong (usual case — some imply nonsensical ~200 ft climbs) or, rarely, the geometry is flipped. Geometry wins; the trace is unaffected.</dd>
+  <dt>Action</dt><dd>Maintainer: check the invert data entry. Only escalate if a cluster of these coincides with a suspected direction problem.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>attribute_slope_error <span class="badge wn">warning</span> <span class="count">— 2 flags</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>SLOPE field is negative (pipes already flagged invert_conflict are skipped — same underlying question).</dd>
+  <dt>Means</dt><dd>Attribute inconsistency; geometry direction is used regardless.</dd>
+  <dt>Action</dt><dd>Fix the SLOPE value in the source layer.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>disconnected_component <span class="badge wn">warning</span> <span class="count">— 105 flags</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>A pipe fragment of ≤ 50 nodes (config <code>disconnected_component_max_nodes</code>) with no connection to any larger part of the network.</dd>
+  <dt>Means</dt><dd>Orphaned stubs or digitizing islands. <strong>Large separate components are NOT flagged</strong> — the city is genuinely many drainage basins (the largest holds only ~27% of nodes), and separate basins are normal.</dd>
+  <dt>Action</dt><dd>Only matters if a sample site lands on one (the pre-flight check <code>check_sample_sites.py</code> catches that — currently none do). Otherwise maintainer hygiene.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>isolated_manhole <span class="badge wn">warning</span> <span class="count">— 522 flags</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>A manhole whose FACILITYID appears in no pipe's FROMMH/TOMH. Two sub-cases in the description: snaps to a pipe endpoint within 5 ft (= ID mismatch between layers) vs. genuinely far from any pipe.</dd>
+  <dt>Means</dt><dd>Attribute bookkeeping. The trace snaps sample points by <em>coordinate</em>, not ID, so these don't affect results.</dd>
+  <dt>Action</dt><dd>Maintainer: reconcile manhole IDs with pipe attributes. Low priority.</dd>
+</div>
+</div>
+
+<h2>Delineation flags <span style="font-weight:400;color:var(--muted)">(src/polygon_output.py — per traced sewershed)</span></h2>
+
+<div class="card">
+<h3>no_upstream_found <span class="badge rr">review_required</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>The trace returns zero upstream pipes — the target is a headwater (or snapped to the wrong node).</dd>
+  <dt>Means</dt><dd>No sewershed polygon is produced. Either the site really is at the top of its line, or the manhole didn't resolve onto the network correctly.</dd>
+  <dt>Action</dt><dd>Verify the site location and its snap distance; confirm headwater status on the map before accepting.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>large_catchment <span class="badge wn">warning</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>Sewershed exceeds 500 acres (config <code>large_catchment_threshold_acres</code>).</dd>
+  <dt>Means</dt><dd>Often legitimate (e.g. site 17506 → 832 ac). Just a prompt to eyeball the polygon.</dd>
+  <dt>Action</dt><dd>Sanity-check the boundary against the network extent.</dd>
+</div>
+</div>
+
+<div class="card">
+<h3>low_population_match <span class="badge wn">warning</span></h3>
+<div class="row">
+  <dt>Trigger</dt><dd>Less than 50% of the thin pipe-buffer ribbon overlaps any served parcel (config <code>low_population_match_min_buffer_coverage</code>; threshold is untuned).</dd>
+  <dt>Means</dt><dd>Pipes running through unparcelled ground — undeveloped/industrial land, a parcel-coverage gap, or a CRS mismatch. Scale-invariant, so small catchments don't false-flag.</dd>
+  <dt>Action</dt><dd>Check whether the trace area is genuinely low-parcel; if legitimate catchments keep firing it, lower the threshold in config.</dd>
+</div>
+</div>
+
+<div class="foot">
+Generated 2026-07-02 · flag semantics per <code>docs/decision_log.md</code> (2026-06-24 geometry-first,
+2026-06-28 shared graph, 2026-07-02 reconciliation) · counts from the 2026-07-02 full QA run.
+Severity totals: 45 review_required (44 snap_gap + 1 directed_cycle), 1,021 warning.
+</div>
+
+</div>
+</body>
+</html>

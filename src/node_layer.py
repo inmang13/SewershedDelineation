@@ -75,14 +75,22 @@ class SnapResult:
 
 def snap_endpoints(pipes: gpd.GeoDataFrame,
                    snap_tol_ft: float,
-                   snap_gap_search_radius_ft: float = 0.0) -> SnapResult:
+                   snap_gap_search_radius_ft: float = 0.0,
+                   manual_snaps: list[dict] | None = None) -> SnapResult:
     """
-    Collect pipe endpoints and snap them into shared nodes (two passes).
+    Collect pipe endpoints and snap them into shared nodes (two passes,
+    plus optional human-directed repairs).
 
     Pass 1 — merge raw endpoints within snap_tol_ft (coincident endpoints).
     Pass 2 — targeted repair: merge pass-1 end nodes (start_only / end_only)
              within snap_gap_search_radius_ft. Junctions are never touched,
              so already-connected short segments cannot be collapsed.
+    Pass 3 — manual snaps (from the QA review decisions file): each entry
+             {x, y, radius_ft} merges every pass-1 cluster whose centroid lies
+             within radius_ft of (x, y). No junction restriction — these are
+             human-confirmed connections that pass 2 skips by design (it only
+             merges end↔end, so an end node beside a junction never repairs
+             automatically).
 
     Returns a SnapResult exposing the exact endpoint→node assignment so callers
     can build both the node layer and the directed graph from one snap. The
@@ -183,6 +191,28 @@ def snap_endpoints(pipes: gpd.GeoDataFrame,
                 ca = end_cids[ia]
                 cb = end_cids[ib]
                 _union(parent2, ca, cb)
+
+    # ------------------------------------------------------------------
+    # Pass 3: manual snaps — merge all pass-1 clusters within radius_ft
+    # of each human-confirmed snap point (unions compose with pass 2).
+    # A snap that reaches fewer than two clusters merges nothing, which
+    # would silently leave the graph unrepaired — typo'd coordinates or a
+    # too-small radius must fail loudly, not via a quietly reappearing flag.
+    # ------------------------------------------------------------------
+    if manual_snaps:
+        for ms in manual_snaps:
+            near = np.where(np.hypot(cx1 - ms["x"], cy1 - ms["y"])
+                            <= ms["radius_ft"])[0]
+            if len(near) < 2:
+                raise ValueError(
+                    f"manual snap at ({ms['x']:.2f}, {ms['y']:.2f}) matched "
+                    f"{len(near)} endpoint cluster(s) within {ms['radius_ft']} ft "
+                    "— nothing to merge. Check the decision row's x/y and "
+                    "radius_ft (radius must exceed half the gap distance), or "
+                    "delete the row if the source geometry has been fixed."
+                )
+            for j in near[1:]:
+                _union(parent2, int(near[0]), int(j))
 
     # Map pass-1 cluster → final cluster
     root2_to_cid = {}

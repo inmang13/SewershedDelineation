@@ -35,7 +35,8 @@ from node_layer import snap_endpoints
 
 def build_graph(pipes: gpd.GeoDataFrame,
                 snap_tol_ft: float,
-                snap_gap_search_radius_ft: float = 0.0) -> nx.MultiDiGraph:
+                snap_gap_search_radius_ft: float = 0.0,
+                manual_snaps: list[dict] | None = None) -> nx.MultiDiGraph:
     """
     Build a directed graph from pipe geometry.
 
@@ -45,6 +46,10 @@ def build_graph(pipes: gpd.GeoDataFrame,
                                use the GeoDataFrame's own units)
     snap_tol_ft                Pass-1 endpoint merge tolerance (ft)
     snap_gap_search_radius_ft  Pass-2 end-node repair radius (ft)
+    manual_snaps               Human-confirmed node merges from the QA review
+                               decisions file ({x, y, radius_ft} dicts; see
+                               qa_review.manual_snaps) — applied as pass 3 of
+                               the shared snap
 
     Returns
     -------
@@ -64,7 +69,8 @@ def build_graph(pipes: gpd.GeoDataFrame,
             n_self_loops    — edges whose start and end snap to one node
             n_parallel      — extra edges beyond the first on a node pair
     """
-    snap = snap_endpoints(pipes, snap_tol_ft, snap_gap_search_radius_ft)
+    snap = snap_endpoints(pipes, snap_tol_ft, snap_gap_search_radius_ft,
+                          manual_snaps=manual_snaps)
 
     G = nx.MultiDiGraph()
 
@@ -160,12 +166,18 @@ def load_graph_from_config(cfg: dict):
     Centralizes the read → reproject → build_graph boilerplate shared by every
     runner so the build signature lives in one place. Returns (G, pipes); pipes
     is returned because Phase 5 needs the geometries addressed by edge `pidx`.
+
+    Manual snaps from the QA review decisions file (if configured) are applied
+    here, so traversal and delineation trace the same human-repaired topology
+    that QA reports on.
     """
+    from qa_review import manual_snaps_from_config
     p = cfg["parameters"]
     pipes = gpd.read_file(cfg["inputs"]["gravity_main_shapefile"]).to_crs(p["crs"])
     G = build_graph(pipes,
                     p["node_snap_tolerance_ft"],
-                    p.get("snap_gap_search_radius_ft", 10.0))
+                    p.get("snap_gap_search_radius_ft", 10.0),
+                    manual_snaps=manual_snaps_from_config(cfg))
     return G, pipes
 
 

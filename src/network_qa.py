@@ -1,19 +1,30 @@
 """
-Network QA for gravity main shapefiles — geometry-first redesign.
+Network QA for gravity main shapefiles — geometry-first, on the shared graph.
 
 Geometry is the primary source of truth for pipe direction. Attribute fields
 (FROMMH, TOMH, SLOPE, UPSTREAMIN, DOWNSTREAM) are used as cross-checks only.
 
+All topology (node snapping, direction, connectivity, cycles) comes from
+`graph_builder.build_graph()` — the same two-pass snap and MultiDiGraph the
+traversal and delineation phases use. QA no longer maintains a private
+re-snapped graph, so its flags describe exactly the network the tool traces.
+Pipes are addressed by positional index (`pidx`, the graph edge key) because
+FACILITYID is null on some pipes and not unique; FACILITYID is still reported
+in flag text for the GIS maintainer.
+
 Flag types:
   missing_direction        FROMMH/TOMH null — geometry still gives direction (warning)
-  invert_conflict          Geometry AND inverts disagree on direction (review_required)
-  attribute_direction_error FROMMH/TOMH backward vs geometry; geometry is correct (warning)
-  negative_slope           Geometry AND slope are inconsistent (review_required)
-  attribute_slope_error    SLOPE field negative but geometry direction is plausible (warning)
-  snap_gap                 Near-miss endpoint gap outside snap tolerance (review_required)
+  invert_conflict          Invert elevations imply uphill flow vs geometry direction;
+                           geometry is treated as correct (warning)
+  attribute_slope_error    SLOPE field negative but geometry direction is used (warning)
+  snap_gap                 Near-miss end-node gap. Within the pass-2 repair radius it IS
+                           auto-connected in the graph (warning — source geometry still
+                           offset); beyond it, the pipes will not connect (review_required)
   directed_cycle           Small strongly-connected component — local flip (review_required)
   large_cycle              Large SCC — systematic direction error (review_required)
-  disconnected_component   Subgraph isolated from main network (warning)
+  disconnected_component   Small isolated fragment (<= disconnected_component_max_nodes
+                           nodes); large separate components are distinct drainage
+                           basins, not errors (warning)
   isolated_manhole         Manhole not connected to any pipe by ID or coordinate (warning)
 """
 
@@ -27,7 +38,9 @@ from shapely.geometry import Point
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
-from node_layer import build_node_layer
+from graph_builder import build_graph, invert_direction_conflicts, _num
+from node_layer import snap_endpoints
+from qa_review import load_review_decisions, manual_snaps, apply_review
 
 
 # ---------------------------------------------------------------------------
@@ -36,12 +49,13 @@ from node_layer import build_node_layer
 
 def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
     """
-    Load gravity mains and manholes, run all QA checks.
+    Load gravity mains and manholes, run all QA checks on the shared graph.
 
     Returns:
         pipes_repaired  GeoDataFrame with QA_STATUS and QA_FLAGS columns added
         manholes        GeoDataFrame (used by pdf_maps for labeling)
-        flags           list of flag dicts
+        flags           list of flag dicts (each pipe flag carries `pidx` /
+                        `member_pidx`; manhole flags carry neither)
     """
     params           = cfg["parameters"]
     snap_tol         = params["node_snap_tolerance_ft"]
@@ -51,69 +65,44 @@ def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
 
     pipes    = gpd.read_file(cfg["inputs"]["gravity_main_shapefile"]).to_crs(crs)
     manholes = gpd.read_file(cfg["inputs"]["manholes_shapefile"]).to_crs(crs)
+    # pidx is the positional index; make label index == position so .loc/.at
+    # writes and graph pidx values address the same rows.
+    pipes = pipes.reset_index(drop=True)
 
     pipes["QA_STATUS"] = "original"
     pipes["QA_FLAGS"]  = ""
 
-    # Build geometry-based node assignment once; reused by multiple checks
-    nodes = build_node_layer(pipes, snap_tol, snap_gap_radius)
+    # Prior human review (QC decisions file): snap rows repair the graph below;
+    # resolved/keep rows annotate the flags after the checks run.
+    decisions = load_review_decisions(cfg["inputs"].get("qa_review_decisions"))
+
+    # One topology for everything: same snap + graph as traversal/delineation.
+    G = build_graph(pipes, snap_tol, snap_gap_radius,
+                    manual_snaps=manual_snaps(decisions))
 
     flags = []
     flags += _check_missing_direction(pipes)
-    flags += _check_invert_conflict(pipes)
-    flags += _check_negative_slope(pipes)
-    flags += _check_snap_gaps(pipes, snap_tol)
-    flags += _check_directed_cycles(pipes, nodes, snap_tol,
+    flags += _check_invert_conflict(G, pipes)
+    flags += _check_negative_slope(pipes, {f["pidx"] for f in flags
+                                           if f["flag_type"] == "invert_conflict"})
+    flags += _check_snap_gaps(pipes, G, snap_tol, snap_gap_radius)
+    flags += _check_directed_cycles(G, pipes,
                                     params.get("max_mappable_cycle_nodes", 10))
-    flags += _check_disconnected_components(pipes, nodes)
-    flags += _check_isolated_manholes(pipes, manholes, nodes, mh_snap_ft)
+    flags += _check_disconnected_components(
+        G, pipes, params.get("disconnected_component_max_nodes", 50))
+    flags += _check_isolated_manholes(pipes, manholes, G, mh_snap_ft)
 
     _apply_flag_fields(pipes, flags)
+    apply_review(flags, decisions,
+                 match_radius_ft=params.get("review_match_radius_ft", 50.0))
 
     return pipes, manholes, flags
 
 
-# ---------------------------------------------------------------------------
-# Graph builder — geometry-first
-# ---------------------------------------------------------------------------
-
-def _build_geometry_graph(pipes: gpd.GeoDataFrame,
-                          nodes: gpd.GeoDataFrame,
-                          directed: bool = True) -> nx.Graph:
-    """
-    Build a NetworkX graph where every pipe is an edge, including pipes with
-    null FROMMH/TOMH. Node IDs come from the geometry-derived node layer.
-
-    Each pipe's start point (coords[0]) and end point (coords[-1]) are snapped
-    to the nearest node centroid. The snap is guaranteed to succeed because the
-    node layer was built from the same pipe geometry.
-    """
-    G = nx.DiGraph() if directed else nx.Graph()
-
-    if nodes.empty:
-        return G
-
-    node_xy  = np.stack([nodes["x"].values, nodes["y"].values], axis=1)
-    node_ids = nodes["node_id"].values
-    tree     = cKDTree(node_xy)
-
-    for _, row in pipes.iterrows():
-        geom = row.geometry
-        if geom is None or geom.is_empty:
-            continue
-        coords   = list(geom.coords)
-        start_xy = np.array([[coords[0][0],  coords[0][1]]])
-        end_xy   = np.array([[coords[-1][0], coords[-1][1]]])
-
-        _, i_from = tree.query(start_xy)
-        _, i_to   = tree.query(end_xy)
-        from_id   = int(node_ids[i_from[0]])
-        to_id     = int(node_ids[i_to[0]])
-
-        if from_id != to_id:
-            G.add_edge(from_id, to_id)
-
-    return G
+def _fid(row) -> str:
+    """FACILITYID as a display string ('?' if null)."""
+    v = row.get("FACILITYID")
+    return str(v) if pd.notna(v) else "?"
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +117,7 @@ def _check_missing_direction(pipes: gpd.GeoDataFrame) -> list[dict]:
     these are direction_inferrable. Inverts are noted as a cross-check only.
     Severity is warning — not review_required — because geometry handles it.
     """
-    flags    = []
+    flags = []
     null_mask = pipes["FROMMH"].isna() | pipes["TOMH"].isna()
 
     for idx, row in pipes[null_mask].iterrows():
@@ -138,14 +127,10 @@ def _check_missing_direction(pipes: gpd.GeoDataFrame) -> list[dict]:
 
         pipes.at[idx, "QA_STATUS"] = "direction_inferrable"
 
-        upstream_inv   = row.get("UPSTREAMIN")
-        downstream_inv = row.get("DOWNSTREAM")
-        has_inverts = (
-            upstream_inv is not None and downstream_inv is not None
-            and not np.isnan(float(upstream_inv))
-            and not np.isnan(float(downstream_inv))
-            and float(upstream_inv) != float(downstream_inv)
-        )
+        up_inv = _num(row.get("UPSTREAMIN"))
+        dn_inv = _num(row.get("DOWNSTREAM"))
+        has_inverts = (np.isfinite(up_inv) and np.isfinite(dn_inv)
+                       and up_inv != dn_inv)
 
         desc = (
             "FROMMH/TOMH null. Line geometry encodes flow direction "
@@ -158,7 +143,8 @@ def _check_missing_direction(pipes: gpd.GeoDataFrame) -> list[dict]:
         flags.append({
             "flag_type":  "missing_direction",
             "severity":   "warning",
-            "pipe_id":    row["FACILITYID"],
+            "pipe_id":    _fid(row),
+            "pidx":       int(idx),
             "geometry":   geom.centroid,
             "description": desc,
         })
@@ -166,369 +152,374 @@ def _check_missing_direction(pipes: gpd.GeoDataFrame) -> list[dict]:
     return flags
 
 
-def _check_invert_conflict(pipes: gpd.GeoDataFrame) -> list[dict]:
+def _check_invert_conflict(G: nx.MultiDiGraph,
+                           pipes: gpd.GeoDataFrame) -> list[dict]:
     """
-    UPSTREAMIN < DOWNSTREAM means water would flow uphill given FROMMH→TOMH.
+    Invert elevations that imply uphill flow relative to geometry direction.
 
-    Cross-checked against geometry:
-      - Geometry direction agrees with inverts (start invert > end invert):
-        FROMMH/TOMH is backwards, geometry is fine → attribute_direction_error (warning)
-      - Geometry direction also disagrees with inverts:
-        Genuinely ambiguous → invert_conflict (review_required)
+    Delegates to graph_builder.invert_direction_conflicts(G): geometry says
+    flow runs start(up_invert) → end(dn_invert); an edge with
+    up_invert < dn_invert disagrees. Inverts that are NaN or <= 0 (the
+    dataset's no-data placeholder) are skipped there.
+
+    Severity is warning by design: geometry is the authoritative direction
+    source and the inverts never override it (decision_log 2026-06-24 /
+    2026-06-28). The conflict most often means bad invert data entry; only if
+    other evidence corroborates (cycle membership, caught independently) does
+    the pipe itself deserve scrutiny.
     """
     flags = []
-
-    has_all = (
-        pipes["UPSTREAMIN"].notna()
-        & pipes["DOWNSTREAM"].notna()
-        & pipes["FROMMH"].notna()
-        & pipes["TOMH"].notna()
-    )
-    conflict = has_all & (pipes["UPSTREAMIN"].astype(float) < pipes["DOWNSTREAM"].astype(float))
-
-    for idx, row in pipes[conflict].iterrows():
-        geom   = row.geometry
-        coords = list(geom.coords)
-
-        # Geometry direction: start = coords[0], end = coords[-1]
-        # If UPSTREAMIN > DOWNSTREAM when measured start→end, geometry and inverts agree
-        # that flow goes start→end (correct), but FROMMH→TOMH says the opposite → attr error.
-        # We don't have per-vertex elevations, so we use the recorded invert fields directly:
-        # UPSTREAMIN is nominally the elevation at the FROMMH end, DOWNSTREAM at TOMH end.
-        # If FROMMH→TOMH is backward (attribute error), the "upstream" field actually
-        # belongs to what geometry calls the end — i.e., UPSTREAM_INV < DOWNSTREAM_INV
-        # in attribute terms, but the real upstream (geometry start) is higher.
-        # Proxy: check if geometry start coord is "higher" by using the field labels inverted.
-        # Simpler and honest: flag as attribute_direction_error (warning) when
-        # the invert conflict is the only signal. Keep review_required only if there is
-        # additional corroborating evidence (negative slope or cycle membership), which
-        # is caught by those checks independently.
-        up_inv   = float(row["UPSTREAMIN"])
-        down_inv = float(row["DOWNSTREAM"])
-
+    for _, r in invert_direction_conflicts(G).iterrows():
+        pidx = int(r["pidx"])
+        geom = pipes.geometry.iloc[pidx]
+        if geom is None or geom.is_empty:
+            continue
         flags.append({
-            "flag_type": "attribute_direction_error",
+            "flag_type": "invert_conflict",
             "severity":  "warning",
-            "pipe_id":   row["FACILITYID"],
+            "pipe_id":   r["facilityid"],
+            "pidx":      pidx,
             "geometry":  geom.centroid,
             "description": (
-                f"FROMMH/TOMH appear backward: recorded upstream invert "
-                f"({up_inv:.2f} ft) is lower than downstream invert ({down_inv:.2f} ft). "
-                "Line geometry direction is treated as correct. Attribute direction "
-                "will be reconciled in the graph builder."
+                f"Invert elevations imply uphill flow vs line geometry: upstream "
+                f"invert {r['up_invert']:.2f} ft is {r['rise_ft']:.2f} ft below "
+                f"downstream invert {r['dn_invert']:.2f} ft. Geometry direction "
+                "is treated as correct; check the invert fields (or a digitizing "
+                "flip if the geometry is wrong here)."
             ),
         })
-
     return flags
 
 
-def _check_negative_slope(pipes: gpd.GeoDataFrame) -> list[dict]:
+def _check_negative_slope(pipes: gpd.GeoDataFrame,
+                          invert_conflict_pidx: set) -> list[dict]:
     """
     Negative SLOPE field.
 
-    If FROMMH/TOMH are also present and show an invert conflict (caught above),
-    skip to avoid double-flagging. Otherwise flag as attribute_slope_error (warning)
-    — geometry direction is still usable.
+    Pipes already flagged as invert_conflict are skipped (same underlying
+    direction/attribute question — avoid double-flagging). Otherwise flag as
+    attribute_slope_error (warning) — geometry direction is still usable.
     """
     flags = []
-
-    already_flagged_ids: set = set()
-    has_inverts = pipes["UPSTREAMIN"].notna() & pipes["DOWNSTREAM"].notna()
-    ic = has_inverts & (
-        pipes["UPSTREAMIN"].astype(float) < pipes["DOWNSTREAM"].astype(float)
-    )
-    already_flagged_ids = set(pipes[ic]["FACILITYID"].tolist())
-
-    neg_slope = pipes["SLOPE"].notna() & (pipes["SLOPE"].astype(float) < 0)
-    for idx, row in pipes[neg_slope].iterrows():
-        if row["FACILITYID"] in already_flagged_ids:
+    slope = pipes["SLOPE"].map(_num)
+    for idx in pipes.index[slope.notna() & (slope < 0)]:
+        if int(idx) in invert_conflict_pidx:
+            continue
+        row  = pipes.loc[idx]
+        geom = row.geometry
+        if geom is None or geom.is_empty:
             continue
         flags.append({
             "flag_type":  "attribute_slope_error",
             "severity":   "warning",
-            "pipe_id":    row["FACILITYID"],
-            "geometry":   row.geometry.centroid,
+            "pipe_id":    _fid(row),
+            "pidx":       int(idx),
+            "geometry":   geom.centroid,
             "description": (
-                f"Recorded SLOPE is {float(row['SLOPE']):.3f}% (negative). "
+                f"Recorded SLOPE is {slope.loc[idx]:.3f}% (negative). "
                 "Line geometry direction is treated as correct; SLOPE field "
                 "may need updating to match."
             ),
         })
-
     return flags
 
 
-def _check_snap_gaps(pipes: gpd.GeoDataFrame, snap_tol_ft: float) -> list[dict]:
+def _check_snap_gaps(pipes: gpd.GeoDataFrame,
+                     G: nx.MultiDiGraph,
+                     snap_tol_ft: float,
+                     repair_radius_ft: float) -> list[dict]:
     """
-    Pipe endpoints that are close but outside auto-merge tolerance.
-    Unchanged from original — already geometry-based.
-    """
-    flag_threshold = snap_tol_ft * 2
-    flags          = []
+    Near-miss endpoint gaps, in two tiers.
 
-    pipe_index = []
-    coords     = []
-    for idx, geom in zip(pipes.index, pipes.geometry):
-        c = list(geom.coords)
-        coords.append(c[0]);  pipe_index.append(idx)
-        coords.append(c[-1]); pipe_index.append(idx)
+    Tier 1 — repaired (warning): pairs of pass-1 end-node clusters within
+      (snap_tol, repair_radius]. Pass 2 of the shared snap merges exactly
+      these, so the graph connects them and tracing works — but the source
+      geometry is still offset and worth snapping in the authoritative layer.
+      (This is the fix for the old wording, which claimed these "will not
+      connect" — false since the pass-2 repair.)
 
-    coords     = np.asarray(coords)
-    pipe_index = np.asarray(pipe_index)
+    Tier 2 — unconnected (review_required): node pairs of the FINAL graph
+      (after the pass-2 repair) within (snap_tol, 2 x repair_radius] where at
+      least one node is an end node and the two share no pipe. These are
+      separate nodes in the graph, so they genuinely do not connect at this
+      location. End↔junction pairs are included: pass 2 only merges end↔end,
+      so a dangling end near a junction is never repaired — even inside the
+      repair radius. Tier 2 is read off G rather than pass-1 clusters because
+      pass-2 merges are transitive — a pass-1 pair beyond the repair radius
+      can still end up connected through an intermediate end node.
 
-    tree  = cKDTree(coords)
-    pairs = tree.query_pairs(r=flag_threshold, output_type="ndarray")
-
-    seen_pairs = set()
-    for a, b in pairs:
-        ia, ib = pipe_index[a], pipe_index[b]
-        if ia == ib:
-            continue
-        dist = float(np.hypot(*(coords[a] - coords[b])))
-        if dist <= snap_tol_ft:
-            continue
-
-        key = (ia, ib) if ia < ib else (ib, ia)
-        if key in seen_pairs:
-            continue
-        seen_pairs.add(key)
-
-        pipe1    = pipes.loc[ia]
-        pipe2    = pipes.loc[ib]
-        gap_point = Point(
-            (coords[a][0] + coords[b][0]) / 2,
-            (coords[a][1] + coords[b][1]) / 2,
-        )
-        flags.append({
-            "flag_type": "snap_gap",
-            "severity":  "review_required",
-            "pipe_id":   f"{pipe1['FACILITYID']} / {pipe2['FACILITYID']}",
-            "geometry":  gap_point,
-            "description": (
-                f"Endpoint gap of {dist:.2f} ft between pipes "
-                f"{pipe1['FACILITYID']} and {pipe2['FACILITYID']} — exceeds snap "
-                f"tolerance ({snap_tol_ft:.1f} ft), so these will not connect."
-            ),
-        })
-
-    return flags
-
-
-def _check_directed_cycles(pipes: gpd.GeoDataFrame,
-                            nodes: gpd.GeoDataFrame,
-                            snap_tol: float,
-                            max_mappable_nodes: int = 10) -> list[dict]:
-    """
-    Directed cycles are impossible in a gravity sewer. Uses geometry graph so
-    null-attribute pipes participate. Logic is otherwise unchanged.
+    Junction↔junction pairs are excluded — both already have continuity.
     """
     flags = []
-    G     = _build_geometry_graph(pipes, nodes, directed=True)
 
+    def _pair_flag(xa, ya, xb, yb, dist, fids, pidxs, repaired):
+        gap_pt = Point((xa + xb) / 2, (ya + yb) / 2)
+        fids = sorted(fids)
+        if repaired:
+            severity = "warning"
+            desc = (
+                f"Endpoint gap of {dist:.2f} ft between pipe ends "
+                f"({' / '.join(fids)}). Within the {repair_radius_ft:.0f} ft "
+                "end-node repair radius, so the graph auto-connects them and "
+                "tracing works — but the source geometry is offset and should "
+                "be snapped in the authoritative layer."
+            )
+        else:
+            severity = "review_required"
+            desc = (
+                f"Endpoint gap of {dist:.2f} ft between pipe ends "
+                f"({' / '.join(fids)}) — survived the {repair_radius_ft:.0f} ft "
+                "end-node repair as separate nodes, so these do not connect "
+                "at this location in the network graph."
+            )
+        return {
+            "flag_type":   "snap_gap",
+            "severity":    severity,
+            "pipe_id":     " / ".join(fids),
+            "member_pidx": sorted(pidxs),
+            "geometry":    gap_pt,
+            "description": desc,
+        }
+
+    # ---- Tier 1: pass-1 end-node pairs the pass-2 repair merges ----------
+    snap1 = snap_endpoints(pipes, snap_tol_ft, 0.0)   # pass 1 only
+    if snap1.n_nodes:
+        node_pidx = [set() for _ in range(snap1.n_nodes)]
+        node_fids = [set() for _ in range(snap1.n_nodes)]
+        for i in range(len(snap1.ep_node)):
+            nid = int(snap1.ep_node[i])
+            node_pidx[nid].add(int(snap1.ep_pipe_idx[i]))
+            node_fids[nid].add(snap1.ep_fids[i])
+
+        end_ids = np.where(~(snap1.has_start & snap1.has_end))[0]
+        if len(end_ids) > 1:
+            xy = np.stack([snap1.mean_x[end_ids], snap1.mean_y[end_ids]], axis=1)
+            for a, b in cKDTree(xy).query_pairs(r=repair_radius_ft):
+                dist = float(np.hypot(*(xy[a] - xy[b])))
+                if dist <= snap_tol_ft:
+                    continue
+                na, nb = int(end_ids[a]), int(end_ids[b])
+                if node_pidx[na] & node_pidx[nb]:
+                    continue   # same pipe's two ends — directly connected, not a gap
+                flags.append(_pair_flag(
+                    xy[a][0], xy[a][1], xy[b][0], xy[b][1], dist,
+                    node_fids[na] | node_fids[nb],
+                    node_pidx[na] | node_pidx[nb], repaired=True))
+
+    # ---- Tier 2: final nodes that stayed apart ----------------------------
+    nodes  = list(G.nodes(data=True))
+    if len(nodes) > 1:
+        xy     = np.array([[d["x"], d["y"]] for _, d in nodes])
+        is_end = np.array([d["role"] != "junction" for _, d in nodes])
+        ids    = [n for n, _ in nodes]
+        inc = {n: (set(), set()) for n in G.nodes()}   # (pidxs, fids)
+        for u, v, d in G.edges(data=True):
+            for n in (u, v):
+                inc[n][0].add(d["pidx"])
+                inc[n][1].add(d["facilityid"])
+        for a, b in cKDTree(xy).query_pairs(r=2 * repair_radius_ft):
+            if not (is_end[a] or is_end[b]):
+                continue   # junction-junction: both already have continuity
+            dist = float(np.hypot(*(xy[a] - xy[b])))
+            if dist <= snap_tol_ft:
+                continue
+            na, nb = ids[a], ids[b]
+            if inc[na][0] & inc[nb][0]:
+                continue   # nodes share a pipe — directly connected, not a gap
+            flags.append(_pair_flag(
+                xy[a][0], xy[a][1], xy[b][0], xy[b][1], dist,
+                inc[na][1] | inc[nb][1],
+                inc[na][0] | inc[nb][0], repaired=False))
+
+    return flags
+
+
+def _check_directed_cycles(G: nx.MultiDiGraph,
+                           pipes: gpd.GeoDataFrame,
+                           max_mappable_nodes: int = 10) -> list[dict]:
+    """
+    Directed cycles are impossible in a gravity sewer; every non-trivial
+    strongly-connected component is a direction error. Small SCCs get a
+    directed_cycle flag (mappable local flip); large ones get a large_cycle
+    flag plus a suspect list for large_cycle_suspects.csv.
+
+    Membership = pipes with either endpoint in the SCC, found in one pass over
+    the graph edges (node -> SCC map), not per-SCC scans of the pipe table.
+    """
+    flags = []
     sccs = [c for c in nx.strongly_connected_components(G) if len(c) > 1]
     sccs.sort(key=len, reverse=True)
+    if not sccs:
+        return flags
 
-    # Build a node_id → pipe lookup for reporting
-    node_xy  = np.stack([nodes["x"].values, nodes["y"].values], axis=1)
-    node_ids = nodes["node_id"].values
-    tree     = cKDTree(node_xy)
-
-    def _pipes_in_scc(scc_set):
-        """Return pipes whose from or to node is in the SCC."""
-        members = []
-        for _, row in pipes.iterrows():
-            geom = row.geometry
-            if geom is None or geom.is_empty:
-                continue
-            coords  = list(geom.coords)
-            _, if_  = tree.query([[coords[0][0],  coords[0][1]]])
-            _, it_  = tree.query([[coords[-1][0], coords[-1][1]]])
-            fn = int(node_ids[if_[0]])
-            tn = int(node_ids[it_[0]])
-            if fn in scc_set or tn in scc_set:
-                members.append(row)
-        return members
+    node2scc = {n: i for i, scc in enumerate(sccs) for n in scc}
+    members = [{} for _ in sccs]   # scc index -> {pidx: facilityid}
+    for u, v, d in G.edges(data=True):
+        for scc_i in {node2scc.get(u), node2scc.get(v)} - {None}:
+            members[scc_i][d["pidx"]] = d["facilityid"]
 
     for i, scc in enumerate(sccs):
-        member_rows = _pipes_in_scc(scc)
-        if not member_rows:
+        if not members[i]:
             continue
-
-        member_gdf  = gpd.GeoDataFrame(member_rows, crs=pipes.crs)
-        centroid    = member_gdf.geometry.union_all().centroid
-        member_ids  = member_gdf["FACILITYID"].astype(str).tolist()
-        n_nodes     = len(scc)
+        pidxs      = sorted(members[i])
+        member_ids = [members[i][p] for p in pidxs]
+        geoms      = pipes.geometry.iloc[pidxs]
+        centroid   = geoms.union_all().centroid
+        n_nodes    = len(scc)
 
         if n_nodes <= max_mappable_nodes:
             flags.append({
-                "flag_type":  "directed_cycle",
-                "severity":   "review_required",
-                "pipe_id":    " / ".join(member_ids),
-                "geometry":   centroid,
-                "member_ids": member_ids,
+                "flag_type":   "directed_cycle",
+                "severity":    "review_required",
+                "pipe_id":     " / ".join(member_ids),
+                "member_pidx": pidxs,
+                "geometry":    centroid,
                 "description": (
-                    f"Small directed loop: {n_nodes} nodes / {len(member_ids)} pipes "
+                    f"Small directed loop: {n_nodes} nodes / {len(pidxs)} pipes "
                     "form a cycle. Almost certainly one or two flipped pipes."
                 ),
             })
         else:
-            ic = [r for r in member_rows
-                  if pd.notna(r.get("UPSTREAMIN")) and pd.notna(r.get("DOWNSTREAM"))
-                  and float(r["UPSTREAMIN"]) < float(r["DOWNSTREAM"])]
-            neg = [r for r in member_rows
-                   if pd.notna(r.get("SLOPE")) and float(r["SLOPE"]) < 0]
-            ic_ids      = {r["FACILITYID"] for r in ic}
-            neg_ids     = {r["FACILITYID"] for r in neg}
-            suspect_ids = ic_ids | neg_ids
-            no_invert   = sum(1 for r in member_rows
-                              if pd.isna(r.get("UPSTREAMIN")))
+            rows = pipes.iloc[pidxs]
+            up   = rows["UPSTREAMIN"].map(_num)
+            dn   = rows["DOWNSTREAM"].map(_num)
+            sl   = rows["SLOPE"].map(_num)
+            ic_mask  = up.notna() & dn.notna() & (up < dn)
+            neg_mask = sl.notna() & (sl < 0)
+            no_invert = int(up.isna().sum())
 
-            members = []
-            for r in member_rows:
+            member_rows = []
+            for pidx, fid in zip(pidxs, member_ids):
                 reasons = []
-                if r["FACILITYID"] in ic_ids:  reasons.append("uphill_invert")
-                if r["FACILITYID"] in neg_ids: reasons.append("negative_slope")
-                c = r.geometry.centroid
-                members.append({
-                    "scc_id":        i + 1,
-                    "pipe_id":       r["FACILITYID"],
-                    "is_suspect":    bool(reasons),
+                if ic_mask.loc[pidx]:  reasons.append("uphill_invert")
+                if neg_mask.loc[pidx]: reasons.append("negative_slope")
+                c = pipes.geometry.iloc[pidx].centroid
+                member_rows.append({
+                    "scc_id":         i + 1,
+                    "pipe_id":        fid,
+                    "is_suspect":     bool(reasons),
                     "suspect_reason": ";".join(reasons),
-                    "x":             round(c.x, 2),
-                    "y":             round(c.y, 2),
+                    "x":              round(c.x, 2),
+                    "y":              round(c.y, 2),
                 })
 
+            n_suspect = int((ic_mask | neg_mask).sum())
             flags.append({
                 "flag_type":    "large_cycle",
                 "severity":     "review_required",
-                "pipe_id":      f"SCC_{i + 1} ({len(member_ids)} pipes)",
+                "pipe_id":      f"SCC_{i + 1} ({len(pidxs)} pipes)",
+                "member_pidx":  pidxs,
+                "member_pipes": member_rows,
                 "geometry":     centroid,
-                "member_ids":   member_ids,
-                "member_pipes": members,
                 "description": (
                     f"Large directed tangle (SCC {i + 1}): {n_nodes} nodes / "
-                    f"{len(member_ids)} pipes. Not a physical loop — likely systematic "
-                    f"attribute direction errors. {len(suspect_ids)} prime suspect(s): "
-                    f"{len(ic_ids)} uphill inverts, {len(neg_ids)} negative slopes; "
+                    f"{len(pidxs)} pipes. Not a physical loop — likely systematic "
+                    f"direction errors. {n_suspect} prime suspect(s): "
+                    f"{int(ic_mask.sum())} uphill inverts, "
+                    f"{int(neg_mask.sum())} negative slopes; "
                     f"{no_invert} pipe(s) have no invert data. "
                     "See large_cycle_suspects.csv."
                 ),
             })
-
     return flags
 
 
-def _check_disconnected_components(pipes: gpd.GeoDataFrame,
-                                   nodes: gpd.GeoDataFrame) -> list[dict]:
+def _check_disconnected_components(G: nx.MultiDiGraph,
+                                   pipes: gpd.GeoDataFrame,
+                                   max_nodes: int = 50) -> list[dict]:
     """
-    Flag subgraphs not connected to the main network.
-    Uses geometry graph — null-attribute pipes now participate, so most
-    former false positives should disappear.
+    Flag SMALL weakly-connected fragments (<= max_nodes nodes).
+
+    The the city network is genuinely multiple large drainage basins — the
+    largest weak component holds only ~27% of nodes, and several others hold
+    thousands. A large component is a separate basin, not an error, so only
+    small fragments (orphaned stubs, digitizing islands) are flagged. The
+    threshold matches the sample-site pre-flight check (check_sample_sites.py,
+    decision_log 2026-06-28), which uses < 50 nodes as "suspicious fragment".
+
+    Membership found in one pass over the graph edges via a node -> component
+    map, not per-component scans of the pipe table.
     """
     flags = []
-    G     = _build_geometry_graph(pipes, nodes, directed=False)
-
-    components = list(nx.connected_components(G))
+    components = list(nx.connected_components(G.to_undirected(as_view=True)))
     if len(components) <= 1:
         return flags
 
-    main_component = max(components, key=len)
+    node2comp = {n: i for i, comp in enumerate(components) for n in comp}
+    members = [{} for _ in components]   # comp index -> {pidx: facilityid}
+    for u, v, d in G.edges(data=True):
+        members[node2comp[u]][d["pidx"]] = d["facilityid"]
 
-    # Build node_id → pipes lookup for reporting
-    node_xy  = np.stack([nodes["x"].values, nodes["y"].values], axis=1)
-    node_ids = nodes["node_id"].values
-    tree     = cKDTree(node_xy)
-
-    for i, component in enumerate(components):
-        if component == main_component:
+    for i, comp in enumerate(components):
+        if len(comp) > max_nodes or not members[i]:
             continue
-
-        member_rows = []
-        for _, row in pipes.iterrows():
-            geom = row.geometry
-            if geom is None or geom.is_empty:
-                continue
-            coords = list(geom.coords)
-            _, if_ = tree.query([[coords[0][0],  coords[0][1]]])
-            _, it_ = tree.query([[coords[-1][0], coords[-1][1]]])
-            fn = int(node_ids[if_[0]])
-            tn = int(node_ids[it_[0]])
-            if fn in component or tn in component:
-                member_rows.append(row)
-
-        if not member_rows:
-            continue
-
-        member_gdf = gpd.GeoDataFrame(member_rows, crs=pipes.crs)
-        centroid   = member_gdf.geometry.union_all().centroid
+        pidxs    = sorted(members[i])
+        centroid = pipes.geometry.iloc[pidxs].union_all().centroid
         flags.append({
-            "flag_type": "disconnected_component",
-            "severity":  "warning",
-            "pipe_id":   f"component_{i}",
-            "geometry":  centroid,
+            "flag_type":   "disconnected_component",
+            "severity":    "warning",
+            "pipe_id":     f"component_{i}",
+            "member_pidx": pidxs,
+            "geometry":    centroid,
             "description": (
-                f"Isolated subgraph with {len(component)} node(s) and "
-                f"{len(member_rows)} pipe(s) — not connected to the main network."
+                f"Small isolated fragment: {len(comp)} node(s) / "
+                f"{len(pidxs)} pipe(s) not connected to any larger part of "
+                "the network. Larger separate components are treated as "
+                "distinct drainage basins and not flagged."
             ),
         })
-
     return flags
 
 
 def _check_isolated_manholes(pipes: gpd.GeoDataFrame,
-                              manholes: gpd.GeoDataFrame,
-                              nodes: gpd.GeoDataFrame,
-                              mh_snap_ft: float) -> list[dict]:
+                             manholes: gpd.GeoDataFrame,
+                             G: nx.MultiDiGraph,
+                             mh_snap_ft: float) -> list[dict]:
     """
     Manholes not connected to any pipe — by FACILITYID first, then by
-    coordinate proximity to the geometry-derived node layer.
+    coordinate proximity to the shared graph's nodes.
 
-    A manhole that fails the FACILITYID check but snaps to a pipe endpoint
-    within mh_snap_ft is connected via geometry — flagged as ID mismatch
-    (warning) rather than truly isolated.
+    A manhole that fails the FACILITYID check but snaps to a graph node within
+    mh_snap_ft is connected via geometry — flagged as ID mismatch (warning)
+    rather than truly isolated. These are manhole flags: they carry no pidx
+    and never touch pipe QA fields.
     """
     flags = []
 
     connected_ids = set(pipes["FROMMH"].dropna()) | set(pipes["TOMH"].dropna())
     unmatched     = manholes[~manholes["FACILITYID"].isin(connected_ids)]
 
-    if unmatched.empty or nodes.empty:
+    if unmatched.empty or G.number_of_nodes() == 0:
         return flags
 
-    node_xy = np.stack([nodes["x"].values, nodes["y"].values], axis=1)
+    node_xy = np.array([[G.nodes[n]["x"], G.nodes[n]["y"]] for n in G.nodes()])
     tree    = cKDTree(node_xy)
 
     for _, row in unmatched.iterrows():
-        pt    = row.geometry
-        coord = np.array([[pt.x, pt.y]])
-        dist, _ = tree.query(coord)
-        dist    = float(dist[0])
+        pt = row.geometry
+        if pt is None or pt.is_empty:
+            continue
+        dist = float(tree.query([[pt.x, pt.y]])[0][0])
 
         if dist <= mh_snap_ft:
-            flags.append({
-                "flag_type": "isolated_manhole",
-                "severity":  "warning",
-                "pipe_id":   row["FACILITYID"],
-                "geometry":  pt,
-                "description": (
-                    f"Manhole {row['FACILITYID']} not found in FROMMH/TOMH attributes, "
-                    f"but snaps to a pipe endpoint {dist:.1f} ft away — likely an ID "
-                    "mismatch between the manholes layer and the pipes layer."
-                ),
-            })
+            desc = (
+                f"Manhole {_fid(row)} not found in FROMMH/TOMH attributes, "
+                f"but snaps to a pipe endpoint {dist:.1f} ft away — likely an ID "
+                "mismatch between the manholes layer and the pipes layer."
+            )
         else:
-            flags.append({
-                "flag_type": "isolated_manhole",
-                "severity":  "warning",
-                "pipe_id":   row["FACILITYID"],
-                "geometry":  pt,
-                "description": (
-                    f"Manhole {row['FACILITYID']} does not appear in FROMMH/TOMH "
-                    f"and is {dist:.1f} ft from the nearest pipe endpoint — "
-                    "genuinely disconnected or outside the mapped network."
-                ),
-            })
-
+            desc = (
+                f"Manhole {_fid(row)} does not appear in FROMMH/TOMH "
+                f"and is {dist:.1f} ft from the nearest pipe endpoint — "
+                "genuinely disconnected or outside the mapped network."
+            )
+        flags.append({
+            "flag_type":  "isolated_manhole",
+            "severity":   "warning",
+            "pipe_id":    _fid(row),
+            "geometry":   pt,
+            "description": desc,
+        })
     return flags
 
 
@@ -537,19 +528,23 @@ def _check_isolated_manholes(pipes: gpd.GeoDataFrame,
 # ---------------------------------------------------------------------------
 
 def _apply_flag_fields(pipes: gpd.GeoDataFrame, flags: list[dict]) -> None:
-    """Write QA_STATUS and QA_FLAGS fields back onto the pipes GeoDataFrame."""
-    flag_map: dict[str, list[str]] = {}
-    for f in flags:
-        if f.get("member_ids"):
-            ids = [str(pid).strip() for pid in f["member_ids"]]
-        else:
-            ids = [pid.strip() for pid in str(f["pipe_id"]).split(" / ")]
-        for pid in ids:
-            flag_map.setdefault(pid, []).append(f["flag_type"])
+    """
+    Write QA_STATUS and QA_FLAGS onto the pipes GeoDataFrame, keyed by pidx.
 
-    for idx, row in pipes.iterrows():
-        fid = str(row["FACILITYID"])
-        if fid in flag_map:
-            pipes.at[idx, "QA_FLAGS"] = ", ".join(flag_map[fid])
-            if pipes.at[idx, "QA_STATUS"] == "original":
-                pipes.at[idx, "QA_STATUS"] = "flagged"
+    Flags address pipes via `pidx` (single) or `member_pidx` (list). Flags with
+    neither (isolated_manhole) belong to manholes and are skipped — keying by
+    FACILITYID smeared flags across same-ID / null-ID pipes and let manhole
+    flags land on pipes that happened to share the ID.
+    """
+    flag_map: dict[int, list[str]] = {}
+    for f in flags:
+        pidxs = f.get("member_pidx")
+        if pidxs is None:
+            pidxs = [f["pidx"]] if f.get("pidx") is not None else []
+        for pidx in pidxs:
+            flag_map.setdefault(int(pidx), []).append(f["flag_type"])
+
+    for pidx, types in flag_map.items():
+        pipes.at[pidx, "QA_FLAGS"] = ", ".join(dict.fromkeys(types))
+        if pipes.at[pidx, "QA_STATUS"] == "original":
+            pipes.at[pidx, "QA_STATUS"] = "flagged"

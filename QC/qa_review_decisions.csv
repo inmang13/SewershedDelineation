@@ -1,0 +1,59 @@
+flag_type,pipe_id,x,y,decision,radius_ft,comment
+snap_gap,63489 / 63491 / 63496 / 63498,2031860.26,831955.24,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,02418 / 02419 / 02420,2049322.37,853240.45,keep,,"not sure, keep flag, but not critical"
+snap_gap,12378 / 52897 / 54915,2021615.7,822840.82,resolved,,"not snap gap, genuinely do not connect"
+snap_gap,63495 / 63496 / 63498,2031855.57,831949.87,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,15458 / 17333,2039936.53,809076.99,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,34467 / 58880,2033216.44,846387.24,resolved,,"This is a treament plant or pump, both pipes end here. No snap gap"
+snap_gap,51545 / 51546 / 51548,2040007.52,828780.75,keep,,might be a snap gap. Appears to be a WWTP. Does not have big impact on anything (downstream pipe does not have any manholed)
+snap_gap,63153 / 63622,2031722,841133.44,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,53476 / 53480 / 59316,2017825.91,820776.4,resolved,,"I see no issue,no snap"
+snap_gap,12360 / 63249 / 64653,2022050.76,822712.14,resolved,,"I see no issue,no snap, just a small pipe, probably a lateral"
+snap_gap,63691 / 63692 / 63693,2049902.4,825907.19,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,63490 / 63491 / 63496 / 63497,2031852.71,831940.61,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,28496 / 34622 / 50475,2006536.47,785400.77,resolved,,"looks like a lateral, no snap"
+snap_gap,30481 / 30482 / 30483,2028349.43,774638.65,snap,5.0,YES SNAP
+snap_gap,63490 / 63491 / 63492 / 63493,2031845.45,831932.61,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,56062 / 56063,2055327.75,799877.36,resolved,,"no snap gap, someone added laterals to the gravity main."
+snap_gap,09197 / 31823 / 31824,2032033.72,821201.19,resolved,,"Note sure, but assume no snap"
+snap_gap,55326 / 55515 / 55519,2063898.88,796118.03,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,12537 / 12648 / 51394,2018611.06,822237.58,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,57375 / 57376,2029362.62,815547.3,resolved,,"no snap, just weird parallel laterals"
+snap_gap,63274 / 63275 / 64232,2067182.18,807051.45,resolved,,"no snap, just a small pipe"
+snap_gap,63606 / 64286 / 64287,2025074.12,837169.39,resolved,,"no snap, wouldn’t have any impact"
+snap_gap,13597 / 13598 / 13599 / 13603,2017224.92,817931.14,resolved,,"no snap, just weird parallel laterals"
+snap_gap,01792 / 01797 / 01798,2040240.86,853418.58,resolved,,"no snap, wouldn’t have any impact"
+snap_gap,04079 / 04080 / 04081 / 04093,2022508.95,845089.96,resolved,,"might be near a pump station, no snap for now"
+snap_gap,53510 / 53612 / 53619,2018282.06,821357.36,resolved,,"no snap, just weird parallel laterals"
+snap_gap,13052 / 52068 / 52069,2064276.16,811146.69,resolved,,"just small pipes, no snap"
+snap_gap,51545 / NDWRF-A,2040022.73,828780.54,resolved,,"WRF= water reclemation facility, no snap"
+snap_gap,07196 / 55664 / 55665,2042657.76,829204.88,resolved,,"no snap, wouldn’t have any impact"
+snap_gap,59791 / 59792 / 59795,2028959.11,819520.42,resolved,,"no snap, lateral/small pipe"
+snap_gap,14906 / 14916 / 14917,2044233.22,814740.08,resolved,,no snap
+snap_gap,09541 / 10149,2037440.86,819872.48,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,41032 / 62115 / 62117,2029498.9,827109.2,resolved,,"no snap, wouldn’t have any impact"
+snap_gap,63490 / 63491 / 63495 / 63498,2031854.27,831936.45,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,04080 / 04092 / 04093,2022524.47,845090.32,resolved,,"might be near a pump station, no snap for now"
+snap_gap,63494 / 63495 / 63496 / 63497,2031851.86,831952.08,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,55087 / 55088 / 55090,2027736.08,818299.95,resolved,,"no snap, lateral/small pipe"
+snap_gap,63490 / 63491 / 63494 / 63495 / 63497,2031850.56,831938.66,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,63490 / 63491 / 63493 / 63494,2031846.94,831934.49,resolved,,"no snap gap, just a weird pipe layout."
+snap_gap,26242 / 64306 / 64308,2007548.41,798457.32,resolved,,"no snap, lateral/small pipe"
+snap_gap,00322 / 53297 / 62925,2062733.53,806658.42,resolved,,"no snap, wouldn’t have any impact"
+snap_gap,12958 / 52987,2026572.36,819735.55,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,09236 / 09245,2032622.31,820463.53,resolved,,Genuinly do not connect. Flow goes in opposite directions.
+snap_gap,06345 / 06346,2008884.91,846291.37,resolved,,"no snap, lateral/small pipe"
+directed_cycle,08364 / 08368 / 08373 / 08374 / 08386,2041059.77,824629.04,resolved,,"08373 / 08374 are unconnected with everything else, just ignore."
+disconnected_component,component_6,2040094.93,859639.13,resolved,,agree with assessment
+disconnected_component,component_9,2037327.48,852154.21,resolved,,agree with assessment. Goes from WWTP to outfall
+disconnected_component,component_10,2026824.66,854770.92,resolved,,agree with assessment
+disconnected_component,component_11,2026920.71,852003.76,resolved,,agree with assessment
+disconnected_component,component_13,2049739.43,852993.23,resolved,,agree with assessment
+disconnected_component,component_14,2049357.86,853258.01,resolved,,agree with assessment
+disconnected_component,component_15,2052360,845523.56,resolved,,agree with assessment
+disconnected_component,component_21,2046951.4,835530.89,resolved,,"agree with assessment, end at PS"
+disconnected_component,component_22,2022698.33,845517.51,resolved,,"agree with assessment, end at PS"
+disconnected_component,component_23,2022519.15,845065.32,resolved,,"agree with assessment, end at PS"
+disconnected_component,component_24,2020786.3,843726.9,resolved,,"agree with assessment, end at PS"
+disconnected_component,component_25,2018609,843856.89,resolved,,"agree with assessment, end at PS"
+disconnected_component,component_28,2058242.22,827010.56,resolved,,agree with assessment

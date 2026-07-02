@@ -21,6 +21,9 @@ scratchpad/
 *.tmp
 *.log
 
+# Stray scratch file (roadmap P4 item 12)
+wb.html
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

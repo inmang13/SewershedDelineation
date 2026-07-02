@@ -20,19 +20,26 @@ inputs:
   validation_truth_polygons: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Polygons_05212026.shp"
   validation_points: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Locations_05212026.shp"
 
+  # Human QA review decisions (see src/qa_review.py). Rows with decision=snap
+  # force node merges in the shared snap (pass 3); resolved/keep rows annotate
+  # flags so reviewed items stop appearing as open. Optional — remove or leave
+  # the file absent to run without prior review.
+  qa_review_decisions: "QC/qa_review_decisions.csv"
+
 parameters:
   crs: "EPSG:2264"                  # NAD83 / NC State Plane, US survey feet
   node_snap_tolerance_ft: 1.0       # endpoints within this distance merged into one node
   snap_gap_search_radius_ft: 10.0   # search radius for near-miss end node pairs (snap gap QC flags)
   manhole_snap_distance_ft: 50.0    # max distance to snap coordinate input to graph node
   manhole_node_snap_ft: 5.0         # max distance to match a manhole to a pipe endpoint by coordinate
+  review_match_radius_ft: 50.0      # proximity fallback for matching review decisions to flags whose id shifted (e.g. component numbering)
   pipe_buffer_distance_ft: 50.0     # thin QC ribbon for low_population_match coverage check
   selection_radius_ft: 50.0         # buffer around pipes for population-unit selection (swept in validation)
 
   # Boundary construction (Phase 8). `boundary_method` picks how the served units
   # become a seamless polygon; morph_close is the tuned primary method.
   boundary_method: "morph_close"    # morph_close | blocks_dissolve | hybrid | concave
-  close_radius_ft: 100.0            # morphological close radius (buffer +r then -r); swept in validation
+  close_radius_ft: 150.0            # morphological close radius (buffer +r then -r); re-swept 2026-07-02 vs corrected truth (was 100)
   concave_ratio: 0.3               # shapely.concave_hull ratio knob (0=tight, 1=convex); concave method only
 
   large_catchment_threshold_acres: 500.0
@@ -50,15 +57,22 @@ parameters:
   # instead of a (useless, citywide) map.
   max_mappable_cycle_nodes: 10
 
+  # Weakly-connected components with this many nodes or fewer are flagged as
+  # disconnected fragments. Larger ones are separate drainage basins (the city's
+  # network has several thousand-node components), not errors. Matches the
+  # < 50 node criterion in check_sample_sites.py.
+  disconnected_component_max_nodes: 50
+
   # Which flag types get individual PDF map pages. All flags always appear in the
   # CSV; this only controls the maps. Bulk completeness issues (isolated_manhole,
   # disconnected_component) are left CSV-only by default — they read fine as rows
   # and would otherwise dominate the PDF.
+  # missing_direction is deliberately NOT mapped: those pipes get direction from
+  # geometry (direction_inferrable) and need no human review — CSV/GPKG only.
   pdf_flag_types:
     - invert_conflict
-    - missing_direction
     - snap_gap
-    - negative_slope
+    - attribute_slope_error   # emitted name (was listed as negative_slope, which no check emits)
     - directed_cycle
 
   # Basemap under PDF maps. Plot is reprojected to EPSG:3857 for tile display only
@@ -66,10 +80,12 @@ parameters:
   # gracefully (skips basemap + warns) when offline.
   basemap_style: "satellite"        # satellite (Esri World Imagery) | street (CartoDB Positron)
 
-  # IoU-floor success thresholds (Phase 8 validation). Left null until the first
-  # sweep reveals the achievable ceiling — set after reviewing the printed table.
-  iou_floor_median: null            # T1 — winner must have median IoU >= this
-  iou_floor_n_sites: null           # N  — winner must have >= N of 25 sites at IoU >= 0.5
+  # IoU-floor success thresholds (Phase 8 validation). Set 2026-07-02 per the
+  # roadmap recommendation after the first sweep showed morph_close at median
+  # 0.79, 20/21 aggregate sites >= 0.5.
+  iou_floor_median: 0.75            # T1 — winner must have median IoU >= this
+  iou_floor_n_sites: 20             # N  — winner needs >= N of the ~21 aggregate sites at IoU >= 0.5
+                                    #      (aggregate excludes 30804 pumped + 02201/03442 undiagnosed)
 
 outputs:
   node_layer: "output/pipe_endpoint_nodes.gpkg"

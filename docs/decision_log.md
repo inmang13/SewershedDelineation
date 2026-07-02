@@ -1,4 +1,4 @@
-# Decision Log — SewershedDelineation
+﻿# Decision Log — SewershedDelineation
 
 ## 2026-06-23 — Initial architecture decisions
 
@@ -399,3 +399,223 @@ pipe network + parcels (SewerGEMS/InfoSewer/ArcGIS UN need licensed platforms; D
 the wrong paradigm for a known pipe network; `sewergraph` validates the architecture but produces no
 service-area polygon). Borrow `shapely.concave_hull` (candidate) and Hill & Larsen 2023 (census-block
 apportionment for the demographic join).
+
+## 2026-07-02 — IoU floor set, LOO validation, network_qa reconciled onto the shared graph
+
+**Decision:** IoU floor set at median >= 0.75 and >= 20 aggregate sites >= 0.5 (roadmap recommendation,
+user-approved). Sweep winner auto-finalized: **morph_close, sel_r=100 ft, close=150 ft — median IoU
+0.7948, 20/21 aggregate sites >= 0.5**. `output/validation_overlay.gpkg` written for the winner.
+
+**Result — leave-one-out validation (the quotable number):** LOO median IoU **0.7898** vs in-sample
+0.7948 — optimism gap +0.005, i.e. the tuned number generalizes. Fold-stable: morph_close close=150
+won all 21 folds (sel_r=50 in 20 folds, sel_r=100 in 1 — those two are an in-sample near-tie, 0.7937
+vs 0.7948, adjacent grid points). Write-up phrasing: "median IoU 0.79 (leave-one-out 0.79) across the
+21 gravity-tractable validation sites." Implemented as `--loo` in src/validation.py: pure pandas
+re-aggregation of the per-site sweep rows (no geometry rerun; reads output/validation_sweep.csv or
+runs with --sweep). Fold rule = highest median over the other 20 sites (tie-break: n sites >= 0.5);
+the IoU floor is not applied inside folds — its site-count term has no 20-site analogue. Fold logic
+smoke-tested on a hand-computed synthetic table before the real run.
+
+**Decision:** network_qa.py ported off its private `_build_geometry_graph` nearest-centroid re-snap
+onto the shared `graph_builder.build_graph()`/pidx topology (closes the 2026-06-28 "known cleanup").
+QA flags now describe exactly the network the tool traces. User signed off on the three deliverable-
+changing calls below. Specifics:
+- **Flags keyed by pidx**, not FACILITYID (null/non-unique IDs smeared flags; the old
+  disconnected_component flags in fact never tagged any pipe — their "component_N" pseudo-IDs matched
+  nothing, a silent no-op). Manhole flags (isolated_manhole) carry no pidx and never touch pipe fields.
+- **invert_conflict, severity warning** (was attribute_direction_error): the check is now
+  `graph_builder.invert_direction_conflicts(G)` — inverts disagreeing with geometry direction,
+  skipping <= 0 placeholder inverts. Geometry-first: attributes are cross-checks and never override
+  geometry, so warning, not review_required. Name matches config pdf_flag_types and the roadmap table.
+- **snap_gap is two-tier:** (1) pass-1 end-node pairs within (snap_tol, 10 ft] are auto-connected by
+  the graph's pass-2 repair — warning, "fix source geometry" (the old "these will not connect" wording
+  was false for these); (2) node pairs that survived the repair, within 20 ft, sharing no pipe, at
+  least one an end node — review_required, genuinely unconnected. Tier 2 includes end-junction pairs,
+  which pass 2 never repairs: 7 such gaps sit INSIDE the 10 ft repair radius and were invisible to the
+  old check.
+- **disconnected_component = small fragments only** (new config `disconnected_component_max_nodes`,
+  default 50, matching check_sample_sites.py). The port revealed the city is genuinely multiple large
+  basins — the largest weak component holds only ~27% of nodes (10,350 of 38,414; next largest 5,879,
+  2,919, ...). "Not in the largest component" would tag 72% of pipes as broken; fragments <= 50 nodes
+  are the actual QC signal.
+- O(pipes x components) membership loops replaced by single-pass node->component maps over graph edges.
+- Config pdf_flag_types: negative_slope -> attribute_slope_error (the emitted name; nothing ever
+  emitted negative_slope).
+
+**Result — QA rerun on all 38,359 pipes:** 1,066 flags vs the 1,076 of the 2026-06-25 baseline, every
+per-type change reconciled: isolated_manhole 522 (unchanged); invert 281 -> 267 (placeholder-invert
+skip + geometry orientation; matches Phase 3's validated 267); disconnected 146 -> 105 (<= 50-node
+semantics); missing_direction 112 (unchanged); snap_gap 13 -> 57 (13 tier-1 + 44 tier-2; the old 2 ft
+band both overstated "will not connect" and under-searched); attribute_slope_error 2 (unchanged);
+directed_cycle 0 -> 1 — the known 08373/08374 two-node SCC, which the old private re-snap MISSED:
+exactly the topology-divergence defect that motivated the port. Full PDF maps not regenerated (6-page
+preview only); run `python run_qa.py` for the full deliverable before handoff.
+
+
+---
+
+## 2026-07-02 — QA review feedback loop (decisions file + manual snaps)
+
+**Decision:** Human QA review is consumed from a decisions CSV
+(`QC/qa_review_decisions.csv`, config key `inputs.qa_review_decisions`;
+loader `src/qa_review.py`) rather than being re-done each round. Three
+decision values:
+- `snap` — human-confirmed connection: merged in the shared snap as a new
+  pass 3 (`node_layer.snap_endpoints(manual_snaps=...)`), no junction
+  restriction. Applied identically in QA and in `load_graph_from_config`,
+  so QA, traversal, and delineation share one repaired topology.
+- `resolved` — flag still fires but carries `review_status=resolved`:
+  kept in CSV/GPKG for the record, dropped from PDF maps and the "open"
+  review_required count.
+- `keep` — still open; the reviewer comment rides along on the flag.
+
+Matching is exact `(flag_type, pipe_id)` with a 50 ft proximity fallback
+(same flag_type) because `component_N` ids are not stable across runs.
+
+**Rationale:** Grace reviewed all 44 tier-2 snap_gap flags (2026-07-02):
+only ONE is a real gap (pipes 30481/30482/30483, 2.78 ft — an end node
+beside a junction, exactly the end↔junction case pass 2 skips by design).
+The rest are real non-connections (opposite flow, laterals, WWTP/pump
+ends). Editing source geometry was rejected: data/ is the city's layer;
+a config-driven merge is reproducible and reversible.
+
+**Result (QA rerun, 38,359 pipes):** snap_gap 57→56 (the snapped gap no
+longer fires; graph nodes 38,414→38,413, edges unchanged, the merged node
+is a junction carrying 30481/30482/30483 with in=2/out=1);
+disconnected_component 105→103 (the snap joined the formerly dangling
+fragment to the network — expected effect, not a regression);
+review_required 44 with only 2 open (the two flags Grace marked unsure);
+55 flags annotated resolved. Flags CSV/GPKG gained
+review_status/review_comment (`review` field in GPKG). run_qa.py now
+survives Windows file locks on any output (collects locked paths,
+writes the rest, exits 1 listing them).
+
+**Post-review hardening (same day, /code-review findings):** a `snap`
+decision that reaches fewer than two node clusters now raises (silent
+no-op on a typo'd coordinate was the failure mode); proximity fallback
+is nearest-first and consumes each decision once; `review_match_radius_ft`
+moved to config (50 ft); repaired-shapefile write joined the file-lock
+handling; smoke tests added at `tests/test_qa_review.py` (5 passing —
+Grace to read them per the testing gate). Final QA rerun identical:
+1,063 flags, 56 snap_gap, 2 open review_required, 55 resolved.
+
+---
+
+## 2026-07-02 — "Downstream leakage" at 20.23/20.29 diagnosed: truth-polygon SiteID rotation, not a tracing bug
+
+**Finding:** The QC comment "not including area downstream of the point — see
+20.23 and 20.29" traced back to the validation truth shapefile
+(`Sampling_Polygons_05212026.shp`), not to the delineation. Its `SiteID`
+labels are cyclically rotated among the three 20.x sites while `Sample_ID`
+(the tract number) is correct:
+
+| polygon Sample_ID | labeled SiteID | actually belongs to |
+|---|---|---|
+| 20.20 | 30804 | 03442 (Tract 20.20) |
+| 20.23 | 03442 | 02201 (Tract 20.23) |
+| 20.29 | 02201 | 30804 (Tract 20.29) |
+
+**Evidence:** (1) every other site's sampling point sits 0–531 ft from its
+labeled polygon; these three are 7,910–18,965 ft away. (2) Each rotated
+polygon *contains* the sampling point of the site it actually belongs to.
+(3) Our upstream traces land inside the correctly-matched polygons: the
+30804 trace buffer overlaps the Sample_ID-20.29 polygon 547 of 549 ac; the
+02201 trace buffer overlaps the Sample_ID-20.23 polygon 130 of 130 ac.
+Diagnostic layers: `QC/diagnostics_downstream.gpkg` (upstream + downstream
+trace per site).
+
+**Consequences:** the roadmap's "3 zero-IoU pumped sites" open question is
+explained — 30804/03442/02201 scored zero because the join key (SiteID) was
+rotated, not because gravity tracing fails at pumped sites. 30804 is still
+genuinely a lift station, but its gravity trace lands in the right basin.
+
+**Fix pending Grace's call** (external data — we do not silently edit the
+lab's shapefile): either (a) correct the three SiteID values in the source
+shapefile, or (b) switch the validation join to Sample_ID ↔ point Tract.
+Either way, rerun validation — real IoU for these three sites is currently
+unknown, and the sweep-tuned parameters were chosen with 3 of 24 sites
+scoring a false zero.
+
+---
+
+## 2026-07-02 — Validation re-sweep against corrected truth: median IoU 0.64 → 0.79
+
+**Context:** Truth set corrected twice today: (1) the three rotated SiteID
+labels fixed at the source (previous entry; Grace approved editing the
+shapefile), (2) Grace fixed genuine digitizing errors in the 18.06 and 20.20
+truth polygons — noting the generated boundary was more accurate than her
+manual delineation at those sites. Sites 02201/03442 rejoined the aggregate
+(their FLAG exclusion was the label bug); 30804 remains DROP.
+
+**Results (23 aggregate sites, full grid, output/validation_sweep.csv):**
+- Table winner: morph_close, sel_r=100, close=150 — median IoU **0.7948**,
+  22/23 sites ≥ 0.5.
+- Fold-stable winner: morph_close, **sel_r=50, close=150** — median 0.7937,
+  won 22 of 23 LOO folds. **LOO median 0.7898, optimism gap +0.005.**
+- **Config set to sel_r=50 / close=150** (not the raw table winner): the
+  0.0011 median difference is noise; 50 ft won 22/23 folds; and a 100 ft
+  selection radius would pull in more foreign parcels — the exact defect the
+  upcoming competing-pipe check addresses. Flip to 100 if the smaller radius
+  underperforms on new sites. Only close_radius_ft changed (100 → 150).
+- **30804 (Garrett Rd lift station) scores IoU 0.74** despite the DROP tag —
+  the "gravity tracing structurally can't reproduce a pumped site" rationale
+  is empirically wrong here: sampling at the wet well captures the gravity
+  basin feeding it (matches the field note "captures all of 20.29").
+  RECOMMENDED: un-drop 30804 next sweep, making the aggregate 24 sites.
+- Weakest site: 29962 (Tract 1.02) at IoU 0.37 — consistent with Grace's QC
+  comment about the 1.02/13.01 highway-ramp gap; everything else ≥ 0.66.
+
+**Method note (defensibility):** the 18.06/20.20 truth edits corrected
+digitizing mistakes verified against the pipe layer — not adjustments toward
+the model output. Documented here so the IoU remains an independent metric.
+
+---
+
+## 2026-07-02 — Correction (Grace): lift stations at sampling points are terminal ends; 30804 un-dropped
+
+**Decision:** All validation site exclusions removed (`DROP_SITES = set()`).
+The aggregate is all 24 sites.
+
+**Rationale (Grace's correction of a repeated AI misunderstanding):** a lift
+station AT the sampling point means everything upstream of it is gravity-fed —
+it is a terminal end of a gravity basin and traces like any normal point. A
+pump only matters if a delineation would have to trace THROUGH it (a force
+main mid-basin), which the upstream trace never does. The earlier "pumped
+site, gravity trace structurally can't reproduce it" rationale (2026-07-01)
+was a wrong premise, and 30804's zero IoU that seemed to confirm it was
+actually the SiteID label rotation.
+
+**Result (re-aggregated from the same sweep CSV, 24 sites):** winner is
+morph_close, sel_r=50, close=150 — median IoU **0.7917**, 23/24 sites ≥ 0.5
+(matching the config set earlier today, now as outright table winner).
+LOO median **0.7846**, optimism gap +0.007; fold wins split 12/12 between
+sel_r 50 and 100 (both close=150). 30804 itself: IoU 0.757. The only site
+below 0.5 remains 29962 (Tract 1.02, 0.37).
+
+---
+
+## 2026-07-02 — Phases 2 & 3 signed off ✓ COMPLETE
+
+**Decision:** Mark Phase 2 (network QA) and Phase 3 (graph builder) complete
+in the roadmap, closing the long-standing open question that they were built
+but never verified.
+
+**Rationale / evidence:**
+- `tests/test_phase2_phase3.py` (new): synthetic 12-pipe network with one
+  planted defect per QA check (flipped pipe → cycle, tier-1 and tier-2 snap
+  gaps, uphill inverts, null FROMMH/TOMH, negative slope, isolated manhole).
+  Asserts every flag fires at the planted location with the right severity,
+  QA_STATUS values are correct, and geometry/attributes are unmodified
+  (Phase 2's flag-only contract). Phase 3 side: one edge per pipe, every
+  edge oriented start→end of its geometry, tier-1 gap merged / tier-2 not,
+  planted flip = the lone SCC. Both tests pass.
+- Real-network check (scratchpad `verify_phase3_real.py`, full graph via
+  `load_graph_from_config`): 38,359 edges = 38,359 valid pipes; **0** edges
+  whose direction disagrees with geometry (within 2× repair radius); exactly
+  one non-trivial SCC, size 2, the known 08373/08374 flip.
+- The roadmap's original Phase 3 test criterion (invert-based direction
+  inference) was superseded by the 2026-06-24 geometry-first redesign; noted
+  in the roadmap so the stale criterion doesn't get re-applied.
+
+Per the testing gate, Grace should read `tests/test_phase2_phase3.py` before
+it counts as the standing regression test.

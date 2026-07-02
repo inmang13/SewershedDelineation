@@ -14,19 +14,33 @@ snapped to the graph node, consistent with the geometry-first approach. The join
 is asserted to yield ~24 matched pairs; a mismatch aborts loudly rather than
 producing an all-garbage IoU table.
 
-Scoring rules (decision_log 2026-07-01):
+Scoring rules (decision_log 2026-07-01, amended 2026-07-02):
   - IoU = intersection.area / union.area of generated vs truth polygon.
-  - Site 30804 (Garrett Rd lift station, pumped) is DROPPED from the aggregate —
-    a gravity trace structurally can't reproduce it.
-  - Sites 02201 / 03442 have zero overlap with truth (cause TBD); kept in the
-    table but TAGGED, and excluded from the aggregate alongside 30804 so they
-    don't drag the median while undiagnosed.
+  - No site exclusions. The old 30804 DROP ("pumped site, gravity trace can't
+    reproduce it") was a wrong premise: a lift station at the sampling point is
+    a terminal end — everything upstream is gravity-fed and traces normally.
+    The old 02201/03442 FLAGs were a SiteID label rotation in the truth
+    shapefile, fixed at the source 2026-07-02.
   - Winner = highest median IoU subject to the IoU floor (median >= T1 AND
     >= N sites at IoU >= 0.5). T1/N are set by the user AFTER seeing this table —
     the sweep prints the table and STOPS for that input; it does not auto-finalize.
 
+Leave-one-out validation (--loo):
+  The sweep winner's median IoU is tuned and scored on the same ~21 aggregate
+  sites, so it is optimistically biased. LOO re-aggregates the per-site rows:
+  hold out one aggregate site, pick the best combo by median IoU over the other
+  20 (tie-break: more sites at IoU >= 0.5, then combo order), then score the
+  held-out site at that combo. Repeat for all sites; the median of the held-out
+  scores is the honest generalization number to quote alongside the in-sample
+  median. The IoU floor is NOT applied inside folds — its site-count term
+  (>= N of the ~21 aggregate sites) doesn't translate to a 20-site fold; fold
+  selection mirrors only the "highest median" part of the production rule. No geometry is recomputed:
+  --loo reuses output/validation_sweep.csv (or fresh rows when run as
+  --sweep --loo).
+
 Run:  python run_validation.py --sweep      (thin runner at repo root)
   or  python src/validation.py --sweep      (src is on sys.path when run directly)
+  or  python run_validation.py --loo        (re-aggregate the saved sweep CSV)
 """
 
 import argparse
@@ -44,8 +58,15 @@ from population_join import load_units, assign_population_units
 from boundary import build_boundary
 
 # Sites excluded from the aggregate (median / floor). Kept in the printed table.
-DROP_SITES = {"30804"}               # confirmed pumped lift station
-FLAG_SITES = {"02201", "03442"}      # zero-overlap, cause undiagnosed
+# 2026-07-02: all prior exclusions removed. The FLAG_SITES (02201/03442) zero
+# overlap was a SiteID label rotation in the truth shapefile, fixed at the
+# source. The 30804 DROP rested on a wrong premise: a lift station at the
+# SAMPLING POINT is a terminal end of a gravity basin — everything upstream of
+# it is gravity-fed, so the upstream trace treats it like any other point.
+# A pump only matters if a delineation would have to trace THROUGH it (a force
+# main mid-basin), which the upstream trace never does.
+DROP_SITES = set()
+FLAG_SITES = set()
 EXCLUDE_FROM_AGGREGATE = DROP_SITES | FLAG_SITES
 
 # Default sweep grids (override on the CLI with comma lists).
@@ -257,6 +278,89 @@ def summarize(rows):
     return pd.DataFrame(out).sort_values("median_iou", ascending=False).reset_index(drop=True)
 
 
+def loo_reaggregate(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Leave-one-out re-aggregation of per-site, per-combo sweep rows.
+
+    For each aggregate site (same exclusions as summarize()): pick the winning
+    combo on the other sites by median IoU (tie-break: n sites >= 0.5, then
+    combo sort order), then look up the held-out site's IoU at that combo.
+    Pure pandas — no traces or geometry are recomputed.
+
+    Returns one row per fold: held_out site, winning combo, the training
+    median that picked it, and the held-out IoU.
+    """
+    agg = df[~df["site"].astype(str).isin(EXCLUDE_FROM_AGGREGATE)].copy()
+    if agg.empty:
+        raise ValueError("no aggregate sites in the sweep rows — nothing to fold")
+
+    # param2 is None/NaN for methods without a second parameter; NaN breaks
+    # equality lookups, so key combos on its string form throughout.
+    agg["p2_key"] = agg["param2"].astype(str)
+    combo_cols = ["method", "sel_r", "p2_key"]
+
+    # combos x sites matrix of IoU (one score per cell by construction).
+    pivot = agg.pivot_table(index=combo_cols, columns="site",
+                            values="iou", aggfunc="first").sort_index()
+    if pivot.isna().any().any():
+        missing = int(pivot.isna().sum().sum())
+        raise ValueError(
+            f"sweep rows are not a full combo x site grid ({missing} missing "
+            "cells) — folds would silently drop scores. Re-run --sweep so "
+            "every combo is scored on every site."
+        )
+
+    folds = []
+    for site in sorted(pivot.columns):
+        train = pivot.drop(columns=site)
+        med = train.median(axis=1)
+        n_ge = (train >= 0.5).sum(axis=1)
+        # Deterministic winner: best median, then most sites >= 0.5, then the
+        # sorted combo index order (stable sort keeps it).
+        order = pd.DataFrame({"med": med, "n_ge": n_ge}).sort_values(
+            ["med", "n_ge"], ascending=False, kind="stable")
+        winner = order.index[0]
+        folds.append({
+            "held_out": site,
+            "method": winner[0],
+            "sel_r": winner[1],
+            "param2": winner[2],
+            "train_median": round(float(med.loc[winner]), 4),
+            "held_out_iou": round(float(pivot.loc[winner, site]), 4),
+        })
+    return pd.DataFrame(folds)
+
+
+def report_loo(rows_df: pd.DataFrame) -> None:
+    """Print the LOO fold table, stability summary, and LOO vs in-sample medians."""
+    folds = loo_reaggregate(rows_df)
+
+    print("\n===== LEAVE-ONE-OUT VALIDATION (aggregate excludes "
+          f"{sorted(EXCLUDE_FROM_AGGREGATE)}) =====")
+    print(folds.to_string(index=False))
+
+    combo_counts = (folds.groupby(["method", "sel_r", "param2"])
+                    .size().sort_values(ascending=False))
+    print(f"\nFold-stability — winning combo per fold ({len(folds)} folds):")
+    for combo, n in combo_counts.items():
+        print(f"  {combo}: won {n} fold(s)")
+    if len(combo_counts) > max(2, len(folds) // 3):
+        print("  [!] winner flips across many folds — the tuned combo is not "
+              "stably identified by 20 sites; treat the in-sample choice with care")
+
+    loo_median = folds["held_out_iou"].median()
+    # Comparator = highest median IoU over all aggregate sites (same selection
+    # rule as the folds; the IoU floor is deliberately not applied here).
+    in_sample = summarize(rows_df.to_dict("records")).iloc[0]
+    print(f"\nIn-sample median IoU (best combo, all aggregate sites): "
+          f"{in_sample['median_iou']:.4f}  "
+          f"({in_sample['method']}, sel_r={in_sample['sel_r']}, "
+          f"param2={in_sample['param2']})")
+    print(f"LOO median IoU (held-out scores):                        "
+          f"{loo_median:.4f}")
+    print(f"Optimism gap: {in_sample['median_iou'] - loo_median:+.4f}")
+
+
 def write_overlay(cfg, geom_cache, sites, winner):
     """
     Write output/validation_overlay.gpkg for the winning combo: truth polygons,
@@ -302,7 +406,11 @@ def main():
     ap = argparse.ArgumentParser(description="Boundary-method validation sweep.")
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--sweep", action="store_true",
-                    help="run the full method x radius sweep (required)")
+                    help="run the full method x radius sweep")
+    ap.add_argument("--loo", action="store_true",
+                    help="leave-one-out re-aggregation of the sweep rows "
+                         "(uses output/validation_sweep.csv unless combined "
+                         "with --sweep)")
     ap.add_argument("--methods", default=",".join(METHOD_UNIT),
                     help="comma list of methods to sweep")
     ap.add_argument("--sel", default="", help="comma list of selection radii (ft)")
@@ -310,10 +418,21 @@ def main():
     ap.add_argument("--ratio", default="", help="comma list of concave ratios")
     args = ap.parse_args()
 
-    if not args.sweep:
-        ap.error("nothing to do — pass --sweep")
+    if not args.sweep and not args.loo:
+        ap.error("nothing to do — pass --sweep and/or --loo")
 
     cfg = load_config(args.config)
+    sweep_csv = Path(cfg["_base_dir"]) / "output" / "validation_sweep.csv"
+
+    if args.loo and not args.sweep:
+        # Pure re-aggregation of the saved per-site table — no geometry work.
+        if not sweep_csv.exists():
+            sys.exit(f"{sweep_csv} not found — run --sweep first (or --sweep --loo)")
+        rows_df = pd.read_csv(sweep_csv, dtype={"site": str})
+        print(f"LOO re-aggregation of {sweep_csv} "
+              f"({len(rows_df)} rows, {rows_df['site'].nunique()} sites)")
+        report_loo(rows_df)
+        return
     methods = [m.strip() for m in args.methods.split(",") if m.strip()]
     bad = [m for m in methods if m not in METHOD_UNIT]
     if bad:
@@ -327,7 +446,6 @@ def main():
     # Full per-site table -> CSV (many rows, unreadable inline); combo summary
     # printed in full — that IS the decision table.
     df = pd.DataFrame(rows)
-    sweep_csv = Path(cfg["_base_dir"]) / "output" / "validation_sweep.csv"
     df.to_csv(sweep_csv, index=False, encoding="utf-8")
 
     summary = summarize(rows)
@@ -367,6 +485,9 @@ def main():
               f"param2={top['param2']} -> median IoU {top['median_iou']}, "
               f"{top['n_ge_0.5']}/{top['n_sites']} sites >= 0.5")
         print("----------------------------------------------------------------")
+
+    if args.loo:
+        report_loo(df)
 
 
 if __name__ == "__main__":

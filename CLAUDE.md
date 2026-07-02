@@ -22,3 +22,10 @@ Delineate the contributing area for each eDNA sampling point so we can estimate 
 - Direction errors are flagged, not auto-corrected
 - Each flag gets a zoomed PDF map for human review without opening GIS
 - See `docs/decision_log.md` for rationale on specific choices
+
+## Domain rules (don't re-derive these wrong)
+- **A lift station at the sampling point is a terminal end of a gravity
+  basin** — everything upstream of it is gravity-fed, so it traces like any
+  normal point. Pumps only matter if a trace would have to cross a force main
+  mid-basin, which the upstream trace never does. Do NOT exclude or
+  special-case pumped sites at the target point (corrected 2026-07-02).
