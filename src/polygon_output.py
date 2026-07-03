@@ -47,6 +47,16 @@ DEFAULT_MIN_BUFFER_COVERAGE = 0.5  # untuned — see module docstring
 # competing_pipe flags (empty for site-level flags).
 FLAG_COLUMNS = ["flag_type", "severity", "manhole", "parcel", "description"]
 
+# cp_flag value (population_join.competing_pipe_check) -> flag severity.
+# Shared with run_competing_review.py so the vocabulary can't drift.
+CP_SEVERITY = {"review": "review_required", "warning": "warning"}
+
+
+def unit_id_column(units):
+    """The identifier column of a population-unit GeoDataFrame (parcels use
+    ALTPARNO, census blocks GEOID20), or None if neither exists."""
+    return next((c for c in ("ALTPARNO", "GEOID20") if c in units.columns), None)
+
 
 def _acres(geom) -> float:
     """Area in acres (0.0 for None/empty)."""
@@ -157,8 +167,7 @@ def compute_competing_flags(served_annotated, manhole: str) -> list[dict]:
     from the sewershed here.
     """
     flags = []
-    id_col = next((c for c in ("ALTPARNO", "GEOID20") if c in served_annotated.columns),
-                  None)
+    id_col = unit_id_column(served_annotated)
     hit = served_annotated[served_annotated["cp_flag"] != ""]
     for idx, r in hit.iterrows():
         pid = str(r[id_col]) if id_col else str(idx)
@@ -169,8 +178,7 @@ def compute_competing_flags(served_annotated, manhole: str) -> list[dict]:
                   f"{r['cp_din']:.0f} ft")
         flags.append({
             "flag_type": "competing_pipe",
-            "severity": ("review_required" if r["cp_flag"] == "review"
-                         else "warning"),
+            "severity": CP_SEVERITY[r["cp_flag"]],
             "manhole": manhole,
             "parcel": pid,
             "parcel_id": pid,

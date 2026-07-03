@@ -109,3 +109,8 @@ outputs:
   sewershed_boundary: "output/sewershed_boundary.shp"  # final seamless boundary (scored)
   validation_overlay: "output/validation_overlay.gpkg" # truth vs generated, per-site IoU
   qc_flags_gpkg: "output/qc_flags.gpkg"                # network + delineation flags as spatial layers
+
+  # Competing-pipe review batch (run_competing_review.py) — Grace fills the
+  # CSV's decision column; a later pass consumes it (qa_review pattern).
+  competing_review_csv: "QC/competing_pipe_review.csv"
+  competing_review_gpkg: "QC/competing_pipe_review.gpkg"
