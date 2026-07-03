@@ -36,7 +36,10 @@ def _normalize(flags: list[dict]) -> list[dict]:
         is_network = "pipe_id" in f
         records.append({
             "source":    "network" if is_network else "delineation",
-            "feat_id":   str(f.get("pipe_id", f.get("manhole", ""))),
+            # Per-parcel flags (competing_pipe) identify the parcel, not the
+            # site manhole shared by every flag of the run.
+            "feat_id":   str(f.get("pipe_id",
+                                   f.get("parcel_id", f.get("manhole", "")))),
             "flag_type": f.get("flag_type", ""),
             "severity":  f.get("severity", ""),
             "review":    f.get("review_status", ""),

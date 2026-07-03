@@ -36,6 +36,13 @@ parameters:
   pipe_buffer_distance_ft: 50.0     # thin QC ribbon for low_population_match coverage check
   selection_radius_ft: 50.0         # buffer around pipes for population-unit selection (swept in validation)
 
+  # Competing-pipe check (QC round 1 item 2): flag served parcels that a
+  # DIFFERENT network's main also claims. review_required when a foreign pipe
+  # crosses the parcel or is closer than the in-trace pipe; warning when a
+  # foreign pipe is merely within the selection radius. Flag-only — nothing is
+  # excluded until Grace has reviewed a batch (decision_log 2026-07-02).
+  competing_pipe_check: true
+
   # Boundary construction (Phase 8). `boundary_method` picks how the served units
   # become a seamless polygon; morph_close is the tuned primary method.
   boundary_method: "morph_close"    # morph_close | blocks_dissolve | hybrid | concave

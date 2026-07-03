@@ -43,8 +43,9 @@ SQFT_PER_ACRE = 43560.0
 DEFAULT_LARGE_CATCHMENT_ACRES = 500.0
 DEFAULT_MIN_BUFFER_COVERAGE = 0.5  # untuned — see module docstring
 
-# CSV column order for output/flags.csv.
-FLAG_COLUMNS = ["flag_type", "severity", "manhole", "description"]
+# CSV column order for output/flags.csv. `parcel` is only populated by
+# competing_pipe flags (empty for site-level flags).
+FLAG_COLUMNS = ["flag_type", "severity", "manhole", "parcel", "description"]
 
 
 def _acres(geom) -> float:
@@ -141,6 +142,45 @@ def compute_flags(res, pop, params: dict) -> list[dict]:
     return flags
 
 
+def compute_competing_flags(served_annotated, manhole: str) -> list[dict]:
+    """
+    Per-parcel `competing_pipe` flags from a competing_pipe_check-annotated
+    served GeoDataFrame (population_join.competing_pipe_check).
+
+    One flag per contested unit; severity maps cp_flag "review" ->
+    review_required (a foreign pipe crosses the unit or out-claims the in-trace
+    pipe) and "warning" -> warning (foreign pipe within the selection radius but
+    farther than the in-trace pipe). Geometry is the parcel polygon so the QC
+    GeoPackage shows exactly which parcels are contested.
+
+    Flag-only by design: these rows inform Grace's review; nothing is excluded
+    from the sewershed here.
+    """
+    flags = []
+    id_col = next((c for c in ("ALTPARNO", "GEOID20") if c in served_annotated.columns),
+                  None)
+    hit = served_annotated[served_annotated["cp_flag"] != ""]
+    for idx, r in hit.iterrows():
+        pid = str(r[id_col]) if id_col else str(idx)
+        crossed = bool(r["cp_cross"])
+        d_out = r["cp_dout"]
+        detail = ("a foreign gravity main crosses this parcel" if crossed else
+                  f"nearest foreign main {d_out:.0f} ft vs in-trace "
+                  f"{r['cp_din']:.0f} ft")
+        flags.append({
+            "flag_type": "competing_pipe",
+            "severity": ("review_required" if r["cp_flag"] == "review"
+                         else "warning"),
+            "manhole": manhole,
+            "parcel": pid,
+            "parcel_id": pid,
+            "description": (f"Parcel {pid}: {detail} "
+                            f"(foreign pipe {r['cp_fpipe']})."),
+            "geometry": r.geometry,
+        })
+    return flags
+
+
 def build_sewershed_gdf(res, pop, params: dict):
     """
     One-row GeoDataFrame for output/sewershed.shp, or None if there's no polygon.
@@ -231,7 +271,7 @@ def write_flags_csv(flags: list[dict], path) -> int:
     flags, so a clean run is distinguishable from a run that never produced the
     file. Returns the row count.
     """
-    df = pd.DataFrame([{c: f[c] for c in FLAG_COLUMNS} for f in flags],
+    df = pd.DataFrame([{c: f.get(c, "") for c in FLAG_COLUMNS} for f in flags],
                       columns=FLAG_COLUMNS)
     df.to_csv(path, index=False, encoding="utf-8")
     return len(df)

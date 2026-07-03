@@ -20,6 +20,7 @@ finding; Phase 6 owns any delineation-level flags.
 """
 
 import geopandas as gpd
+import numpy as np
 
 
 class PopulationResult:
@@ -189,3 +190,77 @@ def assign_population_units(pipes: gpd.GeoDataFrame,
     else:
         qc_buf = buf
     return PopulationResult(served, buf, qc_buf)
+
+
+def competing_pipe_check(pipes: gpd.GeoDataFrame,
+                         pidx_list,
+                         served: gpd.GeoDataFrame,
+                         selection_radius_ft: float) -> gpd.GeoDataFrame:
+    """
+    Annotate served units with competing-pipe metrics (QC round 1 item 2).
+
+    Intersect-any selection can't tell WHOSE pipe a boundary parcel is near: a
+    parcel within the selection radius of an in-trace pipe may actually be served
+    by a different network's main (a foreign pipe — any gravity main not in this
+    trace, whether another basin's or downstream of the target). This compares
+    each served unit's distance to the nearest in-trace pipe against the nearest
+    foreign pipe and grades the contest:
+
+      cp_flag = "review"   a foreign pipe intersects the unit, or is closer than
+                           the nearest in-trace pipe — the foreign main has the
+                           stronger claim (review_required).
+      cp_flag = "warning"  a foreign pipe lies within the selection radius (the
+                           other network's own selection would also claim this
+                           unit) but the in-trace pipe is closer — contested.
+      cp_flag = ""         no foreign pipe within the selection radius.
+
+    Foreign pipes beyond the selection radius are irrelevant by construction
+    (they could never have selected the unit), so distances are only resolved
+    within that radius; cp_dout is NaN when no foreign pipe is that close.
+
+    Flag-only: the served set is returned annotated, never filtered. Whether
+    flagged units should be excluded is a human call made after reviewing a batch
+    (decision_log 2026-07-02).
+
+    Added columns (DBF-safe names): cp_din (ft to nearest in-trace pipe),
+    cp_dout (ft to nearest foreign pipe, NaN if none within radius), cp_fpipe
+    (that pipe's FACILITYID), cp_cross (1 if a foreign pipe intersects the unit),
+    cp_flag ("" / "warning" / "review").
+    """
+    out = served.copy()
+    if out.empty:
+        for c, v in (("cp_din", np.nan), ("cp_dout", np.nan), ("cp_fpipe", ""),
+                     ("cp_cross", 0), ("cp_flag", "")):
+            out[c] = v
+        return out
+
+    trace = set(pidx_list)
+    in_pipes = pipes.iloc[sorted(trace)]
+    foreign = pipes.iloc[[i for i in range(len(pipes)) if i not in trace]]
+    geoms = out[["geometry"]]
+
+    def _nearest_dist(right, max_distance=None):
+        """Per-unit nearest distance (and FACILITYID) to `right` pipes."""
+        j = gpd.sjoin_nearest(geoms, right[["FACILITYID", "geometry"]],
+                              how="left", max_distance=max_distance,
+                              distance_col="_d")
+        # Exact-tie duplicates: keep the first match per unit.
+        j = j[~j.index.duplicated(keep="first")]
+        return j["_d"], j["FACILITYID"].fillna("")
+
+    out["cp_din"], _ = _nearest_dist(in_pipes)
+    # A hair over the radius so a unit exactly at the boundary isn't dropped by
+    # float noise; anything genuinely beyond stays NaN (no contest possible).
+    out["cp_dout"], out["cp_fpipe"] = _nearest_dist(
+        foreign, max_distance=selection_radius_ft * (1 + 1e-9))
+
+    crossed = gpd.sjoin(geoms, foreign[["geometry"]],
+                        how="inner", predicate="intersects").index.unique()
+    out["cp_cross"] = out.index.isin(crossed).astype(int)
+
+    review = (out["cp_cross"] == 1) | (out["cp_dout"] < out["cp_din"])
+    contested = out["cp_dout"].notna() & ~review
+    out["cp_flag"] = ""
+    out.loc[contested, "cp_flag"] = "warning"
+    out.loc[review, "cp_flag"] = "review"
+    return out

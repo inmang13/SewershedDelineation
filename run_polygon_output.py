@@ -24,11 +24,11 @@ from config import load_config                       # noqa: E402
 from graph_builder import load_graph_from_config     # noqa: E402
 from traversal import trace_manhole, TargetResolutionError  # noqa: E402
 from population_join import (                         # noqa: E402
-    load_units, assign_population_units,
+    load_units, assign_population_units, competing_pipe_check,
 )
 from polygon_output import (                          # noqa: E402
-    compute_flags, build_sewershed_gdf, build_boundary_gdf,
-    build_debug_pipes_gdf, write_flags_csv,
+    compute_flags, compute_competing_flags, build_sewershed_gdf,
+    build_boundary_gdf, build_debug_pipes_gdf, write_flags_csv,
 )
 from pdf_maps import generate_sewershed_map           # noqa: E402
 from qc_output import write_qc_flags_gpkg              # noqa: E402
@@ -71,12 +71,23 @@ def main():
     else:
         print(f"Served parcels : {pop.n_served:,}  (selection radius {selection_radius:.0f} ft)")
 
-    # Phase 6 — flags + outputs.
-    flags = compute_flags(res, pop, params)
+    # Phase 6 — flags + outputs. Site-level flags drive the printout and the
+    # overview map; per-parcel competing_pipe flags (QC round 1 item 2) join
+    # them only in the CSV/GPKG, where hundreds of parcel rows belong.
+    site_flags = compute_flags(res, pop, params)
+    cp_flags = []
+    if params.get("competing_pipe_check", True) and not pop.is_empty:
+        served_ann = competing_pipe_check(pipes, res.pidx_list, pop.served,
+                                          selection_radius)
+        cp_flags = compute_competing_flags(served_ann, str(res.source_value))
+        n_rev = sum(f["severity"] == "review_required" for f in cp_flags)
+        print(f"Competing-pipe : {len(cp_flags)} contested parcels "
+              f"({n_rev} review_required, {len(cp_flags) - n_rev} warning)")
+    flags = site_flags + cp_flags
     n_flags = write_flags_csv(flags, out_dir / Path(outputs["flags_report"]).name)
     print()
     print(f"Flags          : {n_flags}")
-    for f in flags:
+    for f in site_flags:
         print(f"  [{f['severity']}] {f['flag_type']} — {f['description']}")
 
     # Append delineation flags to the QC GeoPackage (network layers, if any, were
@@ -121,7 +132,7 @@ def main():
             buffer_geom=pop.buffer,
             pipes_sub=debug_gdf,
             target_xy=res.target_xy,
-            flags=flags,
+            flags=site_flags,
             manhole_id=str(res.source_value),
             area_acres=area_ac,
             output_path=str(out_dir / Path(outputs["flag_maps_pdf"]).name),
