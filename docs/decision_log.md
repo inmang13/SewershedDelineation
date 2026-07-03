@@ -619,3 +619,59 @@ but never verified.
 
 Per the testing gate, Grace should read `tests/test_phase2_phase3.py` before
 it counts as the standing regression test.
+
+---
+
+## 2026-07-03 — Competing-pipe check built, validated on QC sites; review batch generated
+
+**Decision:** Competing-pipe check (QC round 1 item 2) implemented as a
+radius-bounded, flag-only annotation (`population_join.competing_pipe_check`):
+for each served unit, compare distance to nearest in-trace pipe vs nearest
+foreign gravity main (any main not in this trace). Severity tiers:
+`review_required` when a foreign pipe crosses the unit or is closer than the
+in-trace pipe; `warning` when a foreign pipe is within the selection radius
+but farther. Foreign pipes beyond the selection radius are ignored by
+construction — they could never have selected the unit.
+**Rationale:** Mirrors Grace's stated rule ("compare distance to in-shed pipes
+vs any out-of-shed main; exclude or flag when a foreign pipe is closer /
+crosses the parcel") with exclusion deferred: flag-only until Grace reviews a
+batch, per the 2026-07-02 review-loop pattern. Tests drafted from the stated
+intent (toy geometry, one parcel per rule) in `tests/test_competing_pipe.py`;
+17 tests pass repo-wide.
+
+**Result — verified against the QC-named parcels:** catches 6 of 7
+still-served parcels (18.08: 225252 review / 225315 warning; Tract 14:
+116991/116992/116994 review, foreign mains cross them; Tract 5: 108674
+warning). The 7th, **216813, escapes** — its foreign main sits beyond the
+50 ft selection radius, so by the check's own logic no network could claim
+it; decision deferred (widen the foreign-search tier vs leave). The other
+QC-named parcels (164674/165265, 116993/235214/156798) are no longer served
+at all — the sel_r 100→50 change (2026-07-02 re-sweep) already dropped them.
+
+**Finding — 18.06 "missing parcels" mirror case is source data, not code:**
+parcels 169852/169854/169865 sit on pipes 64951–64955 (`component_141`,
+6 nodes), a fragment that touches the 17863 traced network at 0.0 ft but
+shares no node — its endpoint lands on a main's midspan (T-junction digitized
+without splitting the main). The manual-snap feedback loop cannot fix
+endpoint-to-interior; needs a pipe split in the source layer. Tract 14's
+235214 sits on the neighboring fragment 64930–64960 (`component_140`,
+25 nodes), 712 ft from any other pipe — genuinely unmapped connection. Both
+fragments already carry unreviewed `disconnected_component` flags; they are
+the highest FACILITYIDs in the layer (newest construction). → GIS-maintainer
+list.
+
+**Decision:** Review batch delivered as `run_competing_review.py` — all 24
+validation sites at production config (sel_r=50, morph_close close=150),
+emitting `QC/competing_pipe_review.csv` (one row per contested parcel; blank
+decision/comment columns, values exclude | keep | reassign; x/y carried for
+proximity fallback, matching the qa_review_decisions pattern) and
+`QC/competing_pipe_review.gpkg` (contested_parcels / boundary / truth).
+Uses the guarded production resolver (false-headwater guard), not the sweep's
+bare nearest_node; failed/headwater sites get a status row instead of
+vanishing. Per-site IoU matches the validation sweep.
+**Result:** 1,325 contested parcels (613 review_required / 712 warning).
+Outlier: Tract 22 at 167/399 served = 42% contested — eyeball first. Tract
+1.02 (287 contested, IoU 0.37) remains the known weak site. Code review run
+per the quality gate; fixes applied (config-driven output paths, shared
+CP_SEVERITY / unit_id_column in polygon_output, empty-layer write guards).
+Commits 4f105db, c0bd918.

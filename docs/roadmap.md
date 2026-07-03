@@ -230,7 +230,10 @@ real decision into `decision_log.md`.
    shared resolution function.
 5. [ ] **Redefine Phase 7 as the multi-site runner** (not a single-manhole `run.py`).
    Loop over a site list → one boundary + flag set per site. ~80% extractable from
-   `validation.py`'s batch trace. This IS the actual use case (25 sites).
+   `validation.py`'s batch trace (and now `run_competing_review.py`'s loop). This IS
+   the actual use case (25 sites). Include: let `trace_manhole` take an explicit
+   target instead of batch callers mutating `cfg["inputs"]` per site
+   (run_competing_review.py does this today — works, but fragile).
 6. [ ] **Fix `qc_flags.gpkg` layer clobbering.** Re-running `run_polygon_output.py` for a
    second manhole overwrites the prior site's `delin_*` layers; a clean run leaves stale
    flags in place (`run_polygon_output.py:85`). Harmless single-site, data-integrity bug
@@ -285,17 +288,34 @@ decision_log 2026-07-02. Remaining, in planned order:
    point is a terminal end of a gravity basin and traces normally. Site 29962
    (Tract 1.02, IoU 0.37) is the one weak delineation — ties into the
    1.02/13.01 cosmetic item below.
-2. [ ] **Competing-pipe check (biggest item — 5 of 9 comments):** intersect-any
-   on the 50 ft buffer includes parcels that a *different* network's pipe serves
-   (18.08 parcels 225315/216813/225252/164674/165265; Tract 14 parcels
-   116991–116994/235214 and 156798; Tract 5 parcel 108674 + those east of it).
-   For each candidate parcel, compare distance to in-shed pipes vs any
-   out-of-shed main; exclude or flag when a foreign pipe is closer / crosses
-   the parcel. Also diagnose the mirror case: ALTOARNO 169852/169854/169865
-   *missing* from 18.06.
+2. [~] **Competing-pipe check (biggest item — 5 of 9 comments): BUILT +
+   BATCH GENERATED (2026-07-03), awaiting Grace's review.**
+   `population_join.competing_pipe_check` annotates each served parcel with
+   distance to nearest in-trace vs foreign main; review_required when foreign
+   crosses/is closer, warning when merely within selection radius. Flag-only.
+   Verified against the QC parcels: catches 6 of 7 still-served named parcels
+   (216813 escapes — its foreign main is beyond the 50 ft radius; decision
+   deferred). 164674/165265, 116993/235214/156798 no longer served at all
+   (sel_r 100→50 drop). `run_competing_review.py` ran all 24 sites →
+   `QC/competing_pipe_review.csv` (1,325 contested parcels: 613
+   review_required / 712 warning; blank decision/comment columns) +
+   `.gpkg` (contested_parcels / boundary / truth). **Remaining:** (a) Grace
+   fills decision column (triage: review_required first; Tract 22 is the
+   outlier at 167/399 = 42% contested; start with 18.08/14/5 to calibrate);
+   (b) build the consuming pass (exclude | keep | reassign before dissolve);
+   (c) decide 216813 (widen foreign-search radius vs leave).
+   **Mirror case DIAGNOSED — data, not code:** the three 18.06 parcels
+   (169852/54/65) sit on fragment 64951–64955 (`component_141`), which
+   touches the traced network at 0 ft but shares no node (endpoint lands on
+   a main's midspan — needs a pipe split at the source; manual-snap pass 3
+   can't fix endpoint-to-interior). Tract 14's 235214 sits on fragment
+   64930–64960 (`component_140`), 712 ft from any other pipe. Both already
+   flagged disconnected_component (unreviewed); highest FACILITYIDs in the
+   layer = newest construction. → GIS-maintainer list.
 3. [ ] **Pairwise overlap QC:** automated overlap check across all output
    polygons (Tracts 5 and 7 may overlap — invisible to eyeball review in GIS).
-   Doubles as the acceptance test for the competing-pipe check.
+   Doubles as the acceptance test for the competing-pipe check. Blocked on
+   item 2's decisions landing (overlap should be measured post-exclusion).
 4. [ ] **Polygon cosmetics (after membership logic is right):** Tract 5-23 is
    two polygons, should be one (bridging the road is acceptable); 1.02/13.01
    highway-ramp gap (cosmetic, Grace says not critical); align polygon edges
