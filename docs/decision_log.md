@@ -903,3 +903,16 @@ populated. Full suite 34 passing.
 - Minor: deduped the empty-result early return (`_no_edits`). Standards axis
   confirmed no the city values hardcoded in code — the system-agnostic directive
   is met.
+
+**IoU re-verified vs edited truth (2026-07-04):** after Grace's truth-polygon
+edits + the topology fixes, single-config score (sel_r=50/close=150) is **median
+IoU 0.8092, 23/24 ≥ 0.5** (17.12 = 0.846; weakest 29962 = 0.37). Single-config,
+NOT a fresh sweep/LOO — quotable tuned number stays the earlier LOO ~0.78 until
+a re-sweep is run. Full verification this session covered: 34 tests + QA
+deliverable + competing batch + real-network edit check, all on committed
+`b06f5a8`.
+
+**Project map** regenerated at `docs/SewershedDelineation_project_map.html`
+(render-verified: 20 nodes, no Mermaid error). Ph1–6/8 done; new load-time
+repair layer (splits/edits/snaps) done; **Ph7 multi-site `run.py` is the one
+open pipeline gap** (partial — loop exists across runners, not unified).

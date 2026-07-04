@@ -151,6 +151,12 @@ written. **Leave-one-out validated: LOO median 0.7898 (optimism gap +0.005), fol
 "median IoU 0.79 (LOO 0.79), 21 gravity-tractable sites." Census-block methods lost (overshoot).
 See decision_log 2026-07-02 and `docs/SewershedDelineation_checkin_2026-07-01.html`.
 
+**Re-check 2026-07-04:** after Grace's truth-polygon edits + the topology fixes (midspan splits,
+7 pipe edits), single-config score at sel_r=50/close=150 rose to **median IoU 0.8092, 23/24 ≥ 0.5**
+(17.12 = 0.846; weakest still 29962/Tract 1.02 = 0.37). NOTE: this is a single-config score, NOT a
+fresh sweep/LOO — the defensible generalization number is still the earlier LOO ~0.78. **Re-sweep +
+LOO against the edited truth is pending** if a quotable tuned number is needed.
+
 Phases 1–6 dissolve served **parcels** into a polygon (median IoU 0.64 vs the hand-drawn truth set).
 Two problems drive this phase, plus two add-ons:
 
