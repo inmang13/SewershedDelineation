@@ -752,3 +752,7 @@ superseded.
 **Consequence for the review batch:** QC/competing_pipe_review.csv was
 regenerated twice (post-split, post-weld); any decisions filled into the
 pre-split version would have been stale. Grace had not started — no loss.
+
+**Testing gate closed (2026-07-04):** Grace read and approved
+`tests/test_pipe_splits.py` — it now counts as standing regression coverage
+for the split/weld machinery.
