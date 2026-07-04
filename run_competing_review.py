@@ -49,7 +49,7 @@ from validation import load_truth, iou                      # noqa: E402
 
 CSV_COLUMNS = [
     "tract", "manhole", "parcel", "severity", "cp_din", "cp_dout",
-    "cp_fpipe", "cp_cross", "x", "y", "decision", "comment",
+    "cp_fpipe", "cp_owner", "cp_cross", "x", "y", "decision", "comment",
 ]
 
 
@@ -85,16 +85,17 @@ def main():
     sites, points_xy = load_truth(cfg)
     tract_of = load_tract_labels(cfg)
 
-    csv_rows, parcel_rows, boundary_rows, truth_rows, statuses = [], [], [], [], []
-    print(f"\n{'tract':<16}{'manhole':<9}{'served':>7}{'contest':>8}"
-          f"{'review':>7}{'warn':>6}{'iou':>7}")
+    # Pre-pass: trace every site once, cache the results, and build a map from
+    # each pipe FACILITYID to the set of tracts whose trace contains it. A
+    # contested parcel's crossing pipe is then labelled with the neighbouring
+    # site it belongs to (cp_owner) — turning "unknown foreign main" into
+    # "reassign to Tract X". A blank cp_owner means the crossing pipe is in no
+    # sampled trace (a genuinely non-sampled main to investigate). General, not
+    # the city-specific: it just cross-references the traces produced this run.
+    traces, statuses = {}, []
+    pidx_owner: dict = {}
     for sid in sorted(sites):
         tract = tract_of.get(sid, "")
-        truth = sites[sid]
-        truth_rows.append({"SiteID": sid, "tract": tract, "geometry": truth})
-
-        # Guarded production resolver, driven by the sampling-point geometry
-        # (geometry-first; also matches sites whose AssetID isn't a manhole id).
         x, y = points_xy[sid]
         cfg["inputs"]["manhole_id"] = None
         cfg["inputs"]["manhole_coordinate"] = [x, y]
@@ -103,12 +104,36 @@ def main():
         except TargetResolutionError as e:
             statuses.append({"tract": tract, "manhole": sid,
                              "status": f"target resolution failed: {e}"})
-            print(f"{tract:<16}{sid:<9}  TARGET RESOLUTION FAILED (IoU 0): {e}")
             continue
         if res.is_empty:
             statuses.append({"tract": tract, "manhole": sid,
                              "status": "headwater — no upstream pipes"})
-            print(f"{tract:<16}{sid:<9}  headwater — no upstream pipes (IoU 0)")
+            continue
+        traces[sid] = res
+        # Key by positional pipe index, not FACILITYID: FACILITYID is null/
+        # non-unique here, so an attribute join could credit the wrong tract.
+        for pidx in res.pidx_list:
+            pidx_owner.setdefault(int(pidx), set()).add(tract)
+
+    def owner_of(fpidx, own_tract: str) -> str:
+        """Tracts (other than this one) whose trace contains pipe index `fpidx`."""
+        if fpidx is None or int(fpidx) < 0:
+            return ""
+        return "; ".join(sorted(pidx_owner.get(int(fpidx), set()) - {own_tract}))
+
+    csv_rows, parcel_rows, boundary_rows, truth_rows = [], [], [], []
+    print(f"\n{'tract':<16}{'manhole':<9}{'served':>7}{'contest':>8}"
+          f"{'review':>7}{'warn':>6}{'iou':>7}")
+    for sid in sorted(sites):
+        tract = tract_of.get(sid, "")
+        truth = sites[sid]
+        truth_rows.append({"SiteID": sid, "tract": tract, "geometry": truth})
+
+        res = traces.get(sid)
+        if res is None:
+            # already recorded in statuses during the pre-pass
+            msg = next((s["status"] for s in statuses if s["manhole"] == sid), "no trace")
+            print(f"{tract:<16}{sid:<9}  {msg} (IoU 0)")
             continue
 
         pop = assign_population_units(pipes, res.pidx_list, parcels, sel_r)
@@ -140,6 +165,7 @@ def main():
                 "cp_dout": (round(float(r["cp_dout"]), 1)
                             if pd.notna(r["cp_dout"]) else ""),
                 "cp_fpipe": str(r["cp_fpipe"]),
+                "cp_owner": owner_of(r.get("cp_fpidx"), tract),
                 "cp_cross": int(r["cp_cross"]),
                 "x": round(c.x, 2),
                 "y": round(c.y, 2),

@@ -45,6 +45,12 @@ parameters:
   midspan_interior_tol_ft: 2.0        # how close to a pipe's interior counts as "on the pipe"
   midspan_endpoint_exclusion_ft: 10.0 # junctions this close to the pipe's own endpoints belong to the snap/snap_gap machinery, not a split
 
+  # Human-directed pipe edits (flip/delete/extend) from the QA review decisions
+  # file (src/pipe_edits.py). Applied in memory at load time, source layer
+  # untouched; each emits a manual_edit QA flag for the maintainer.
+  apply_pipe_edits: true
+  pipe_edit_locate_tol_ft: 50.0       # max distance from an edit's x/y locator to the pipe it edits
+
   # Competing-pipe check (QC round 1 item 2): flag served parcels that a
   # DIFFERENT network's main also claims. review_required when a foreign pipe
   # crosses the parcel or is closer than the in-trace pipe; warning when a
@@ -91,6 +97,7 @@ parameters:
     - attribute_slope_error   # emitted name (was listed as negative_slope, which no check emits)
     - directed_cycle
     - midspan_junction        # T-junction auto-split in memory; source layer needs a real split
+    - manual_edit             # reviewer-directed flip/delete/extend applied in memory
 
   # Basemap under PDF maps. Plot is reprojected to EPSG:3857 for tile display only
   # (data on disk stays in `crs`). Requires internet at map time; degrades

@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from graph_builder import build_graph, invert_direction_conflicts, _num
 from node_layer import snap_endpoints
 from pipe_splits import apply_midspan_splits
+from pipe_edits import apply_pipe_edits
 from qa_review import load_review_decisions, manual_snaps, apply_review
 
 
@@ -75,6 +76,9 @@ def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
     # tool actually traces. Split segments are appended rows (existing pidx
     # values stay valid); each junction is flagged for the GIS maintainer.
     pipes, split_log = apply_midspan_splits(pipes, cfg, manholes=manholes)
+    # Human-directed edits (flip/delete/extend), after splits — same topology as
+    # load_graph_from_config, so QA describes exactly what the tool traces.
+    pipes, edit_log = apply_pipe_edits(pipes, cfg, manholes=manholes)
 
     pipes["QA_STATUS"] = "original"
     pipes["QA_FLAGS"]  = ""
@@ -82,6 +86,8 @@ def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
     # them so the repaired shapefile / QC layers don't pass them off as data.
     if not split_log.empty:
         pipes.loc[split_log["new_pidx"].to_numpy(), "QA_STATUS"] = "split_segment"
+    if not edit_log.empty:
+        pipes.loc[edit_log["pidx"].to_numpy(), "QA_STATUS"] = "manual_edit"
 
     # Prior human review (QC decisions file): snap rows repair the graph below;
     # resolved/keep rows annotate the flags after the checks run.
@@ -93,6 +99,7 @@ def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
 
     flags = []
     flags += _check_midspan_junctions(split_log)
+    flags += _check_manual_edits(edit_log, pipes)
     flags += _check_missing_direction(pipes)
     flags += _check_invert_conflict(G, pipes)
     flags += _check_negative_slope(pipes, {f["pidx"] for f in flags
@@ -145,6 +152,32 @@ def _check_midspan_junctions(split_log) -> list[dict]:
                 f"{r['sources']}) — the receiving main was never split there. "
                 "Auto-split in memory so the network traces through; split the "
                 "pipe at this point in the source layer to fix permanently."
+            ),
+        })
+    return flags
+
+
+def _check_manual_edits(edit_log, pipes) -> list[dict]:
+    """
+    Human-directed flip/delete/extend edits applied from the QA review file.
+
+    These come from pipe_edits.apply_pipe_edits: the reviewer decided the source
+    geometry is wrong and the tool has applied the fix in memory. Severity is
+    warning (the tool already traces the corrected topology), but the source
+    layer still needs the same edit, so each is flagged for the GIS maintainer.
+    """
+    flags = []
+    for _, r in edit_log.iterrows():
+        flags.append({
+            "flag_type":  "manual_edit",
+            "severity":   "warning",
+            "pipe_id":    str(r["facilityid"]),
+            "pidx":       int(r["pidx"]),
+            "geometry":   Point(r["x"], r["y"]),
+            "description": (
+                f"Reviewer-directed {r['decision']}: {r['detail']}. Applied in "
+                "memory so the network traces correctly; make the same edit in "
+                "the source layer to fix permanently."
             ),
         })
     return flags

@@ -228,37 +228,45 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
 
     Added columns (DBF-safe names): cp_din (ft to nearest in-trace pipe),
     cp_dout (ft to nearest foreign pipe, NaN if none within radius), cp_fpipe
-    (that pipe's FACILITYID), cp_cross (1 if a foreign pipe intersects the unit),
-    cp_flag ("" / "warning" / "review").
+    (that pipe's FACILITYID), cp_fpidx (that pipe's positional index, -1 if none
+    — a stable key when FACILITYID is null/duplicated), cp_cross (1 if a foreign
+    pipe intersects the unit), cp_flag ("" / "warning" / "review").
     """
     out = served.copy()
     if out.empty:
         for c, v in (("cp_din", np.nan), ("cp_dout", np.nan), ("cp_fpipe", ""),
-                     ("cp_cross", 0), ("cp_flag", "")):
+                     ("cp_fpidx", -1), ("cp_cross", 0), ("cp_flag", "")):
             out[c] = v
         return out
 
     trace = set(pidx_list)
-    in_pipes = pipes.iloc[sorted(trace)]
-    foreign = pipes.iloc[[i for i in range(len(pipes)) if i not in trace]]
+    in_positions = sorted(trace)
+    foreign_positions = [i for i in range(len(pipes)) if i not in trace]
     geoms = out[["geometry"]]
 
-    def _nearest_dist(right, max_distance=None):
-        """Per-unit nearest distance (and FACILITYID) to `right` pipes."""
-        j = gpd.sjoin_nearest(geoms, right[["FACILITYID", "geometry"]],
-                              how="left", max_distance=max_distance,
-                              distance_col="_d")
-        # Exact-tie duplicates: keep the first match per unit.
-        j = j[~j.index.duplicated(keep="first")]
-        return j["_d"], j["FACILITYID"].fillna("")
+    def _nearest(positions, max_distance=None):
+        """Per-unit nearest distance, FACILITYID, and positional pidx to the
+        pipes at `positions` (positional indices into `pipes`).
 
-    out["cp_din"], _ = _nearest_dist(in_pipes)
+        `_pidx` carries the true positional index — sjoin returns the sliced
+        frame's own index, which need not be positional, so we set it explicitly
+        from `positions` (the exact list passed to iloc).
+        """
+        r = pipes.iloc[positions][["FACILITYID", "geometry"]].copy()
+        r["_pidx"] = positions
+        j = gpd.sjoin_nearest(geoms, r, how="left", max_distance=max_distance,
+                              distance_col="_d")
+        j = j[~j.index.duplicated(keep="first")]   # exact-tie: keep first match
+        return (j["_d"], j["FACILITYID"].fillna(""),
+                j["_pidx"].fillna(-1).astype(int))
+
+    out["cp_din"], _, _ = _nearest(in_positions)
     # A hair over the radius so a unit exactly at the boundary isn't dropped by
     # float noise; anything genuinely beyond stays NaN (no contest possible).
-    out["cp_dout"], out["cp_fpipe"] = _nearest_dist(
-        foreign, max_distance=selection_radius_ft * (1 + 1e-9))
+    out["cp_dout"], out["cp_fpipe"], out["cp_fpidx"] = _nearest(
+        foreign_positions, max_distance=selection_radius_ft * (1 + 1e-9))
 
-    crossed = gpd.sjoin(geoms, foreign[["geometry"]],
+    crossed = gpd.sjoin(geoms, pipes.iloc[foreign_positions][["geometry"]],
                         how="inner", predicate="intersects").index.unique()
     out["cp_cross"] = out.index.isin(crossed).astype(int)
 

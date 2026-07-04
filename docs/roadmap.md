@@ -299,11 +299,26 @@ decision_log 2026-07-02. Remaining, in planned order:
    (sel_r 100→50 drop). `run_competing_review.py` ran all 24 sites →
    `QC/competing_pipe_review.csv` (1,325 contested parcels: 613
    review_required / 712 warning; blank decision/comment columns) +
-   `.gpkg` (contested_parcels / boundary / truth). **Remaining:** (a) Grace
-   fills decision column (triage: review_required first; Tract 22 is the
-   outlier at 167/399 = 42% contested; start with 18.08/14/5 to calibrate);
-   (b) build the consuming pass (exclude | keep | reassign before dissolve);
+   `.gpkg` (contested_parcels / boundary / truth).
+   **Update 2026-07-04 (QC round 2):** intersect-priority fix (in-trace pipe
+   crossing a parcel is decisive) dropped warnings 699→624; **`cp_owner`
+   annotation** added — each contested parcel names which validation site's
+   trace its crossing pipe belongs to (blank = non-sampled main). The four
+   243778/239919/102868/232487 turned out to be Tract 23 ↔ 10.01 boundary
+   overlaps (each parcel served by both catchments) — this IS item 3 surfacing
+   in the review. Grace's QC_v2 decisions recorded: those 4 = reassign between
+   the neighbours; 132952/140089 = exclude (blank cp_owner). Batch: 1,215
+   contested (591 review / 624 warning). **Remaining:** (a) Grace finishes the
+   decision column (use cp_owner to spot reassigns; Tract 22 outlier 42%);
+   (b) build the consuming pass (exclude | keep | reassign before dissolve) —
+   needs a **persisted** decisions file (the review CSV is regenerable);
    (c) decide 216813 (widen foreign-search radius vs leave).
+   **Also (QC round 2): pipe-edit feedback loop** (`src/pipe_edits.py`) —
+   flip/delete/extend decisions in qa_review_decisions.csv, applied in memory in
+   all load paths, `manual_edit` flags for the maintainer. Grace's 7 edits
+   applied (flip 41145/60075, delete 54794/54796, extend 12071/50418/64653).
+   System-agnostic per Grace's directive: code is general, edits are per-system
+   CSV input. See decision_log 2026-07-04.
    **Mirror case DIAGNOSED — data, not code:** the three 18.06 parcels
    (169852/54/65) sit on fragment 64951–64955 (`component_141`), which
    touches the traced network at 0 ft but shares no node (endpoint lands on

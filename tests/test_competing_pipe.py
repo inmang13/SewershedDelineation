@@ -101,6 +101,15 @@ def test_foreign_pipe_closer_than_in_trace_is_review(pipes, parcels):
     assert row["cp_fpipe"] == "F1"
 
 
+def test_cp_fpidx_is_the_foreign_pipes_position(pipes, parcels):
+    """cp_fpidx carries the foreign pipe's positional index (a stable key when
+    FACILITYID is null/duplicated). F1 is pidx 1; -1 when no foreign in range."""
+    _, ann = annotated(pipes, parcels)
+    assert ann.loc[ann["ALTPARNO"] == "P_CLOSER", "cp_fpidx"].iloc[0] == 1  # F1
+    assert ann.loc[ann["ALTPARNO"] == "P_CROSS", "cp_fpidx"].iloc[0] == 1   # F1
+    assert ann.loc[ann["ALTPARNO"] == "P_CLEAN", "cp_fpidx"].iloc[0] == -1  # none in range
+
+
 def test_foreign_pipe_in_radius_but_farther_is_warning(pipes, parcels):
     _, ann = annotated(pipes, parcels)
     row = ann[ann["ALTPARNO"] == "P_WARN"].iloc[0]

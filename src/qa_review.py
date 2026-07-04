@@ -15,20 +15,32 @@ reads it so review work is never lost between runs:
   decision == "keep"      Reviewed but still open; the comment rides along on
                           the flag so the next reviewer sees the prior finding.
 
+  decision == "flip"      Pipe digitized backwards — reverse its geometry.
+  decision == "delete"    Pipe should not be in the network — drop it.
+  decision == "extend"    Pipe stops short — move its nearer endpoint to the
+                          manhole named in `target` (a FACILITYID or "x,y").
+  The three edit decisions are applied by pipe_edits.py, not here.
+
 Matching is exact (flag_type, pipe_id) first, then a proximity fallback (same
 flag_type within match_radius_ft of the recorded x/y). The fallback covers ids
 that are not stable across runs — disconnected_component numbering depends on
 component enumeration order, which can shift when the graph changes.
 
-Columns: flag_type, pipe_id, x, y, decision, radius_ft, comment
-(radius_ft applies to snap rows only; blank uses DEFAULT_SNAP_RADIUS_FT.)
+Columns: flag_type, pipe_id, x, y, decision, radius_ft, target, comment
+  - radius_ft applies to snap rows only; blank uses DEFAULT_SNAP_RADIUS_FT.
+  - target applies to extend rows only (manhole FACILITYID or "x,y").
+  - x/y are required for snap rows (the gap midpoint) and optional for edit
+    rows (a locator to disambiguate a duplicate/null FACILITYID).
 """
 
 import csv
 import math
 from pathlib import Path
 
-VALID_DECISIONS = {"snap", "resolved", "keep"}
+# Node-merge + annotation decisions handled in this module; the three edit
+# decisions (flip/delete/extend) are validated here but applied by pipe_edits.
+EDIT_DECISIONS = {"flip", "delete", "extend"}
+VALID_DECISIONS = {"snap", "resolved", "keep"} | EDIT_DECISIONS
 
 # A snap row's merge radius when radius_ft is blank. The recorded x/y is the
 # gap midpoint, so the radius must exceed half the gap distance. Tier-2
@@ -63,15 +75,24 @@ def load_review_decisions(path) -> list[dict]:
                     f"(expected one of {sorted(VALID_DECISIONS)})"
                 )
             radius = (row.get("radius_ft") or "").strip()
+            x_raw = (row.get("x") or "").strip()
+            y_raw = (row.get("y") or "").strip()
             try:
-                x, y = float(row["x"]), float(row["y"])
+                # x/y optional for edit rows (a locator); required for snap.
+                x = float(x_raw) if x_raw else None
+                y = float(y_raw) if y_raw else None
                 radius_ft = float(radius) if radius else DEFAULT_SNAP_RADIUS_FT
-            except (KeyError, TypeError, ValueError):
+            except (TypeError, ValueError):
                 raise ValueError(
                     f"{p}, line {lineno}: x, y (and optional radius_ft) must "
                     f"be numeric — got x={row.get('x')!r} y={row.get('y')!r} "
                     f"radius_ft={row.get('radius_ft')!r}"
                 ) from None
+            if dec == "snap" and (x is None or y is None):
+                raise ValueError(
+                    f"{p}, line {lineno}: a snap decision needs x and y "
+                    "(the gap midpoint to merge nodes around)"
+                )
             decisions.append({
                 "flag_type": (row.get("flag_type") or "").strip(),
                 "pipe_id":   (row.get("pipe_id") or "").strip(),
@@ -79,6 +100,7 @@ def load_review_decisions(path) -> list[dict]:
                 "y":         y,
                 "decision":  dec,
                 "radius_ft": radius_ft,
+                "target":    (row.get("target") or "").strip(),
                 "comment":   (row.get("comment") or "").strip(),
             })
     return decisions
@@ -96,6 +118,11 @@ def manual_snaps_from_config(cfg: dict) -> list[dict]:
         load_review_decisions(cfg["inputs"].get("qa_review_decisions")))
 
 
+def pipe_edits(decisions: list[dict]) -> list[dict]:
+    """The flip/delete/extend rows, in file order (applied by pipe_edits.py)."""
+    return [d for d in decisions if d["decision"] in EDIT_DECISIONS]
+
+
 def apply_review(flags: list[dict], decisions: list[dict],
                  match_radius_ft: float = 50.0) -> list[dict]:
     """
@@ -109,7 +136,10 @@ def apply_review(flags: list[dict], decisions: list[dict],
         f["review_status"] = ""
         f["review_comment"] = ""
 
-    reviews = [d for d in decisions if d["decision"] != "snap"]
+    # Only resolved/keep annotate flags. snap removes its own flag; the edit
+    # decisions (flip/delete/extend) change geometry and are surfaced as their
+    # own manual_edit flags, not matched against existing ones.
+    reviews = [d for d in decisions if d["decision"] in {"resolved", "keep"}]
     if not reviews:
         return flags
 

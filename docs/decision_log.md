@@ -791,3 +791,115 @@ longer appears. Regression test `test_in_trace_intersecting_parcel_not_contested
 added (P_ONPIPE: in-trace crosses, foreign 45 ft, expects no flag); full suite
 25 passing. Self-reviewed inline (6-line logic + docstring + test); no full
 `/code-review` spawned given the surface.
+
+---
+
+## 2026-07-04 — Finding (Grace): RMO monitoring basin geometry appears wrong
+
+While hand-editing the Tract 17.12 sewershed polygon (manhole 22500), Grace
+observed that the city's **monitoring basin for meter RMO** (written "RMP" in the
+request — read as RMO; RMP is not among the 15 RDII meters, RMO is — CONFIRM if
+wrong) looks wrong where it meets the 17.12 catchment.
+
+Significance: this is a cross-project data-quality catch, not a tool bug. RMO's
+basin is **already flagged unconfirmed in the RDII project** — it is one of the
+three meters (ENOR/MCO/RMO) whose crosswalk to `MonitoringBasins.shp` is
+NaN-blocked, so its per-acre RDII indices can't be computed. Our geometry-first
+delineation now gives independent evidence the basin polygon itself is
+mis-drawn, which would explain the crosswalk trouble. Logged in the RDII
+decision_log too; added to the the city Water Management notification task in
+`TASKS/tasks.md`.
+
+**Second basin (added 2026-07-04):** while editing the **Tract 16.07** polygon,
+Grace observed the **monitoring basin HTP** also looks wrong. Unlike RMO, "HTP"
+is NOT one of the 15 RDII meters and has no obvious meter match — recorded
+verbatim, not mapped. Could be a treatment-plant / headworks basin or a
+non-metered monitoring basin; needs Grace to identify it.
+
+**Pending Grace:** (1) confirm RMP == RMO; (2) identify what HTP is; (3) pin the
+specific mismatch for each (basin edge vs the corrected 17.12 / 16.07 catchment)
+so the maintainer note is precise.
+
+---
+
+## 2026-07-04 — QC round 2: pipe-edit mechanism + boundary-overlap annotation
+
+Grace completed `QC/QC_Review_v2.xlsx` (10 comments) and directed: fixes must
+be **system-agnostic — built into the pipeline for any city, not hardcoded to
+the city.** Design honored: all new logic is general code; the city specifics live
+only in inputs (`config.yaml`, the QA review CSV). Schema assumption unchanged
+(`FACILITYID` field on pipes + manholes).
+
+**1. Pipe-edit feedback loop (`src/pipe_edits.py`) — flip / delete / extend.**
+QC round 1 gave us `snap` (node merge); round 2 needed three more reviewer-
+directed source fixes the snap can't express. Added as new decisions in the
+existing `qa_review_decisions.csv` loop (qa_review.py): `flip` (reverse a
+backwards pipe's geometry), `delete` (drop a stray/duplicate main), `extend`
+(move a pipe's nearer endpoint to a manhole or an "x,y" so it connects).
+- Applied in memory in **every** shared load path (load_graph_from_config,
+  network_qa.run_qa, node_layer.write_node_layer), after midspan splits, so QA/
+  traversal/delineation share one topology. Source `data/` untouched; each edit
+  emits a `manual_edit` QA flag (warning, mapped) for the maintainer.
+- **pidx-stable:** edits mutate the pipe's own row; `delete` empties the
+  geometry (snap_endpoints skips empty geoms → no edge) rather than dropping the
+  row, so positional indices — the graph edge key — stay valid. Edited rows
+  tagged `QA_STATUS = manual_edit`.
+- New schema: `target` column (extend only; MH FACILITYID or "x,y") and x/y now
+  optional (a locator to disambiguate duplicate/null FACILITYIDs; still required
+  for `snap`, which needs the gap midpoint). Config: `apply_pipe_edits` (default
+  on), `pipe_edit_locate_tol_ft` (50). Tests: `tests/test_pipe_edits.py`
+  (8, from intent — one per edit type + locate + schema).
+
+**Grace's 7 QC_v2 edits applied & verified on the real network:** flip 41145 &
+60075 (both reversed, no new cycles); delete 54794 & 54796 (gone from graph);
+extend 12071→MH 20198, 50418→MH 53623, 64653→pipe 63249's endpoint (target as
+"x,y", 3.5 ft gap) — all three formerly-disconnected fragments now join real
+networks (5,937 / 1,317 / 5,937-node components). QA rerun: 1,078 flags,
+`manual_edit` 7, disconnected_component 90→86, snap_gap 54→53, SCCs still the 2
+known duplicate-main cycles.
+
+**2. Boundary-overlap annotation (`cp_owner` in run_competing_review.py).**
+Grace caught that the four "foreign" pipes crossing parcels 243778/239919/
+102868/232487 are actually part of the **adjacent validation site's** trace —
+Tract 23 ↔ Tract 10.01 catchments overlap at their shared boundary, and each
+parcel is served by both. The competing check couldn't tell "another network's
+main" from "the neighbouring sample site's main." Fix: the batch pre-traces all
+sites, builds a FACILITYID→owning-tracts map, and labels each contested parcel's
+crossing pipe with `cp_owner` — the neighbouring site it belongs to (blank =
+in no sampled trace = genuinely foreign). Turns a per-pipe investigation into
+"reassign to Tract X" at a glance. General: it just cross-references the traces
+produced that run.
+
+**Grace's 6 parcel decisions recorded** (competing_pipe_review.csv decision
+column; durable copy here): 102868/232487 → **reassign** to Tract 23;
+243778/239919 → **reassign** to Tract 10.01 (cp_owner names each); 132952
+(Tract 14) & 140089 (Tract 20.29) → **exclude** (blank cp_owner — crossing main
+is in no sampled trace). Note: the review CSV is regenerable, so these 6 live
+here as the durable record until the consuming pass (roadmap QC item 2b) reads a
+persisted decisions file.
+
+**Answered — 2-pipe networks:** 12 two-node weak components; 23 components with
+≤2 edges. Grace asked about auto-filtering them; deferred (a blanket small-
+component drop risks removing real small basins) — the per-pipe `delete`
+decision already generalizes, and disconnected_component already flags them.
+
+**Batch regenerated:** 1,215 contested (591 review / 624 warning), cp_owner
+populated. Full suite 34 passing.
+
+**Code review (2-axis) — two real bugs found & fixed:**
+- *cp_owner mislabel on duplicate FACILITYID.* The owner map keyed tracts by
+  FACILITYID, which is null/non-unique here — a different pipe sharing an id
+  could credit the wrong tract. Fixed: `competing_pipe_check` now returns
+  `cp_fpidx` (the foreign pipe's positional index), and the owner map keys by
+  pidx (exact). Regression test `test_cp_fpidx_is_the_foreign_pipes_position`.
+- *flip left invert/slope inconsistent → considered swapping them.* First fix
+  swapped UPSTREAMIN↔DOWNSTREAM on flip; testing on 60075 (UPSTREAMIN 363.48 >
+  DOWNSTREAM 358.93, originally consistent) showed the swap *invented* a
+  physically-implausible invert_conflict (water climbing). Reverted to
+  **geometry-only flip**: the invert check reads columns by name, so a
+  geometry-only flip never fabricates a conflict, whereas swapping can. Inverts
+  stay as source data (geometry-first; maintainer reconciles, manual_edit flags
+  it). Verified 60075 no longer invert-flagged after the revert.
+- Minor: deduped the empty-result early return (`_no_edits`). Standards axis
+  confirmed no the city values hardcoded in code — the system-agnostic directive
+  is met.

@@ -115,7 +115,8 @@ def test_decisions_annotate_flags():
 def test_loader_rejects_typos_and_bad_coords():
     for bad_row, why in [
         ("snap_gap,A,10,10,reslved,,typo\n", "unknown decision"),
-        ("snap_gap,A,,10,resolved,,blank x\n", "blank coordinate"),
+        ("snap_gap,A,,10,snap,,snap needs both coords\n", "blank x on a snap row"),
+        ("snap_gap,A,notnum,10,resolved,,bad x\n", "non-numeric coordinate"),
     ]:
         try:
             load_review_decisions(_write_csv(HEADER + bad_row))
@@ -123,6 +124,10 @@ def test_loader_rejects_typos_and_bad_coords():
             pass
         else:
             raise AssertionError(f"loader must reject: {why}")
+    # x/y are optional for non-snap rows (edit rows locate by FACILITYID; a
+    # resolved row without coords just can't proximity-match). Allowed.
+    assert len(load_review_decisions(_write_csv(
+        HEADER + "snap_gap,A,,,resolved,,no coords ok\n"))) == 1
     # Blank decision = comment-only row: allowed, skipped.
     assert load_review_decisions(_write_csv(
         HEADER + "snap_gap,A,10,10,,,just a note\n")) == []
