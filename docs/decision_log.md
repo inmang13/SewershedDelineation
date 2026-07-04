@@ -756,3 +756,38 @@ pre-split version would have been stale. Grace had not started — no loss.
 **Testing gate closed (2026-07-04):** Grace read and approved
 `tests/test_pipe_splits.py` — it now counts as standing regression coverage
 for the split/weld machinery.
+
+---
+
+## 2026-07-04 — Competing-pipe check: intersect prioritized over proximity
+
+**Origin:** Walking parcel 183779 (Tract 16.03, manhole 25387): flagged
+`warning` because foreign sibling main 50818 sat 42.6 ft away (within the 50 ft
+selection radius). But an in-trace pipe runs *through* 183779 (cp_din = 0), and
+50818 does not intersect it. Grace: "Intersect should be prioritized over
+nearby."
+
+**Decision:** The `warning` tier now fires only when the unit is a *marginal*
+selection — no in-trace pipe intersects it (`cp_din > 0`) — and a foreign pipe
+is within radius but farther. When an in-trace pipe physically intersects the
+unit (`cp_din == 0`), the claim is decisive and a merely-nearby foreign pipe
+no longer contests it. One-line predicate change in
+`population_join.competing_pipe_check`:
+`contested = cp_dout.notna() & ~review & (cp_din > 0)`.
+**The `review` tier is unchanged** — a foreign pipe that crosses the unit
+(`cp_cross == 1`) or is strictly closer (`cp_dout < cp_din`) still escalates to
+`review_required` regardless of cp_din, because both are genuine competing
+claims even when an in-trace pipe also touches.
+
+**Rationale:** intersect-any selection means most boundary parcels are only
+~16% inside the buffer, but a parcel the in-trace main actually passes through
+is unambiguously served by this network. Flagging it because a sibling branch
+happens to run down the next street was noise. cp_din is always finite for a
+served unit (the trace is non-empty), so the guard is safe.
+
+**Result:** batch regenerated — contested 1,296 → 1,221; warnings 699 → 624
+(75 cleared), `review_required` unchanged at 597 (as designed). 183779 no
+longer appears. Regression test `test_in_trace_intersecting_parcel_not_contested`
+added (P_ONPIPE: in-trace crosses, foreign 45 ft, expects no flag); full suite
+25 passing. Self-reviewed inline (6-line logic + docstring + test); no full
+`/code-review` spawned given the surface.

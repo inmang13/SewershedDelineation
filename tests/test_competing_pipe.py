@@ -15,6 +15,9 @@ fires exactly once:
   P_CROSS   foreign main passes through the parcel -> review_required
   P_CLOSER  foreign main closer than in-trace      -> review_required
   P_WARN    foreign main within 50 ft but farther  -> warning
+  P_ONPIPE  in-trace main runs THROUGH the parcel, -> no flag
+            foreign main within 50 ft but not         (intersect is decisive;
+            crossing                                    proximity doesn't contest it)
 
 Run:  python -m pytest tests/test_competing_pipe.py -q
 """
@@ -52,12 +55,13 @@ def pipes():
 @pytest.fixture()
 def parcels():
     return gpd.GeoDataFrame(
-        {"ALTPARNO": ["P_CLEAN", "P_CROSS", "P_CLOSER", "P_WARN"]},
+        {"ALTPARNO": ["P_CLEAN", "P_CROSS", "P_CLOSER", "P_WARN", "P_ONPIPE"]},
         geometry=[
             box(-40, 10, -30, 90),   # d_in 30, foreign 90 ft away (out of radius)
             box(30, 110, 70, 190),   # d_in 30, foreign crosses the parcel
             box(35, 210, 45, 290),   # d_in 35, foreign 15 ft — foreign closer
             box(5, 310, 15, 390),    # d_in 5,  foreign 45 ft — contested only
+            box(-5, 92, 15, 108),    # d_in 0 (in-trace crosses), foreign 45 ft — decisive
         ],
         crs=CRS,
     )
@@ -72,9 +76,10 @@ def flag_of(ann, pid):
     return ann.loc[ann["ALTPARNO"] == pid, "cp_flag"].iloc[0]
 
 
-def test_all_four_parcels_are_served(pipes, parcels):
+def test_all_parcels_are_served(pipes, parcels):
     pop, _ = annotated(pipes, parcels)
-    assert set(pop.served["ALTPARNO"]) == {"P_CLEAN", "P_CROSS", "P_CLOSER", "P_WARN"}
+    assert set(pop.served["ALTPARNO"]) == {
+        "P_CLEAN", "P_CROSS", "P_CLOSER", "P_WARN", "P_ONPIPE"}
 
 
 def test_parcel_near_own_pipe_only_is_not_flagged(pipes, parcels):
@@ -101,6 +106,18 @@ def test_foreign_pipe_in_radius_but_farther_is_warning(pipes, parcels):
     row = ann[ann["ALTPARNO"] == "P_WARN"].iloc[0]
     assert row["cp_flag"] == "warning"
     assert row["cp_din"] < row["cp_dout"] <= SEL_R
+
+
+def test_in_trace_intersecting_parcel_not_contested(pipes, parcels):
+    """Intersect is prioritized over proximity: an in-trace pipe running through
+    the parcel is decisive, so a foreign pipe merely within radius (not crossing,
+    farther) does not flag it. Grace's 183779 case."""
+    _, ann = annotated(pipes, parcels)
+    row = ann[ann["ALTPARNO"] == "P_ONPIPE"].iloc[0]
+    assert row["cp_din"] == 0                       # in-trace pipe intersects
+    assert 0 < row["cp_dout"] <= SEL_R              # foreign nearby but not crossing
+    assert row["cp_cross"] == 0
+    assert row["cp_flag"] == ""                     # decisive — not contested
 
 
 def test_check_is_flag_only_selection_unchanged(pipes, parcels):

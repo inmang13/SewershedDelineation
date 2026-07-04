@@ -209,10 +209,14 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
       cp_flag = "review"   a foreign pipe intersects the unit, or is closer than
                            the nearest in-trace pipe — the foreign main has the
                            stronger claim (review_required).
-      cp_flag = "warning"  a foreign pipe lies within the selection radius (the
-                           other network's own selection would also claim this
-                           unit) but the in-trace pipe is closer — contested.
-      cp_flag = ""         no foreign pipe within the selection radius.
+      cp_flag = "warning"  the in-trace pipe does NOT intersect the unit (it was
+                           pulled in by the selection buffer) and a foreign pipe
+                           lies within the selection radius but farther — a
+                           marginal selection the other network could also claim.
+      cp_flag = ""         no foreign pipe within the selection radius, OR an
+                           in-trace pipe physically intersects the unit — a
+                           decisive claim that a merely-nearby foreign pipe does
+                           not contest (intersect is prioritized over proximity).
 
     Foreign pipes beyond the selection radius are irrelevant by construction
     (they could never have selected the unit), so distances are only resolved
@@ -259,7 +263,13 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
     out["cp_cross"] = out.index.isin(crossed).astype(int)
 
     review = (out["cp_cross"] == 1) | (out["cp_dout"] < out["cp_din"])
-    contested = out["cp_dout"].notna() & ~review
+    # Intersect is prioritized over proximity: an in-trace pipe running through
+    # the unit (cp_din == 0) is a decisive claim, so a foreign pipe that is
+    # merely nearby (within radius, not crossing, farther) does not contest it.
+    # Warn only when the unit is a marginal selection — near but not intersected
+    # by any in-trace pipe (cp_din > 0). A foreign pipe that crosses or is closer
+    # still escalates to review above regardless of cp_din.
+    contested = out["cp_dout"].notna() & ~review & (out["cp_din"] > 0)
     out["cp_flag"] = ""
     out.loc[contested, "cp_flag"] = "warning"
     out.loc[review, "cp_flag"] = "review"
