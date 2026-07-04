@@ -312,6 +312,13 @@ decision_log 2026-07-02. Remaining, in planned order:
    64930–64960 (`component_140`), 712 ft from any other pipe. Both already
    flagged disconnected_component (unreviewed); highest FACILITYIDs in the
    layer = newest construction. → GIS-maintainer list.
+   **RESOLVED IN-TOOL (2026-07-03): midspan-junction splits** (see
+   decision_log) — component_141 and 25 other midspan tees now connect via
+   in-memory pipe splits; the source-layer fix stays on the maintainer list
+   as 26 `midspan_junction` flags. component_140 (712 ft away) remains
+   genuinely unmapped. **Review CSV regenerated (1,296 contested) — fill in
+   THAT version, not any older copy.** New open review items from the
+   splits: duplicate main 62451/62452 (directed_cycle, one copy backwards).
 3. [ ] **Pairwise overlap QC:** automated overlap check across all output
    polygons (Tracts 5 and 7 may overlap — invisible to eyeball review in GIS).
    Doubles as the acceptance test for the competing-pipe check. Blocked on

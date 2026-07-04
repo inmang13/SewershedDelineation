@@ -419,6 +419,12 @@ def write_node_layer(cfg: dict):
 
     pipes = gpd.read_file(cfg["inputs"]["gravity_main_shapefile"]).to_crs(crs)
 
+    # Same midspan-junction splits as load_graph_from_config / QA, so the node
+    # layer describes the topology the tool actually traces (local import —
+    # pipe_splits is a sibling module and this avoids import-order surprises).
+    from pipe_splits import apply_midspan_splits
+    pipes, _ = apply_midspan_splits(pipes, cfg)
+
     # Pass search radius into build so snap gap repair happens before outputs
     nodes = build_node_layer(pipes, snap_tol, search_radius)
     _write_gpkg(nodes, node_path, "pipe_endpoint_nodes")

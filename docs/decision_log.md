@@ -674,4 +674,81 @@ Outlier: Tract 22 at 167/399 served = 42% contested — eyeball first. Tract
 1.02 (287 contested, IoU 0.37) remains the known weak site. Code review run
 per the quality gate; fixes applied (config-driven output paths, shared
 CP_SEVERITY / unit_id_column in polygon_output, empty-layer write guards).
-Commits 4f105db, c0bd918.
+Commits 4f105db, c0bd918. (Superseded 2026-07-03: batch regenerated after
+midspan splits — 1,296 contested; see next entry.)
+
+---
+
+## 2026-07-03 — Midspan-junction pipe splitting (src/pipe_splits.py)
+
+**Origin:** Walked through parcel 222903 (Tract 17.09, manhole 24430) with
+Grace: flagged review_required because "foreign" pipe 62112 crossed it. Grace
+caught that 62112 belongs to the network — it drains to MH 58048, which sits
+on pipe 34720's *interior* (0.17 ft off the line, 43 ft from the nearest
+endpoint). The main was digitized without being split at the tee, so
+endpoint-to-endpoint snapping could never connect the lateral: same defect
+class as fragments component_140/141 (logged 2026-07-03 as "needs a source
+pipe split"). Grace's instruction: "If there is a MH in the middle of the
+pipe, then split the pipe. For entire the city network."
+
+**Decision:** Split receiving pipes at midspan junctions in memory at load
+time (`pipe_splits.apply_midspan_splits`), wired into BOTH shared load paths
+(`graph_builder.load_graph_from_config`, `network_qa.run_qa`) plus the node
+layer writer — one topology everywhere. `data/` untouched (same
+reproducibility contract as manual snaps); each junction emits a new
+`midspan_junction` QA flag (warning, mapped) telling the maintainer to split
+the pipe at the source. Config-gated: `split_midspan_junctions` (default on),
+`midspan_interior_tol_ft` 2.0, `midspan_endpoint_exclusion_ft` 10.0.
+
+**Trigger = union of two rules** (Grace's rule + the connectivity case):
+a manhole on a pipe's interior, OR another pipe's endpoint terminating on a
+pipe's interior (a crossing pipe passes through; an endpoint terminating
+there is a tee, manhole or not). Junctions within the exclusion radius of the
+pipe's own endpoints are left to the existing snap/snap_gap machinery — no
+sliver segments. Citywide scan: 26 junctions on 23 pipes (16 of 18
+endpoint-junctions have a manhole; 7 pipes have MH-only junctions).
+
+**pidx stability:** the parent row keeps the first segment; extra segments
+are appended as new rows with attributes copied (existing pidx references
+stay valid). Appended rows are labeled `QA_STATUS="split_segment"` so the
+repaired shapefile doesn't pass tool-made geometry off as source data.
+Segments keep the parent's orientation (geometry-first rule preserved).
+
+**Weld pass (from code review — the bug that mattered):** interior tolerance
+(2 ft) exceeds the pass-1 snap (1 ft), so a lateral endpoint 1–2 ft off the
+main would get its junction split but still not merge — split pipe, still
+disconnected. Fix: after cutting, every pipe endpoint within the interior
+tolerance of a cut point is moved exactly onto it. Regression test added
+(`test_weld_band_endpoint_connects`). Other review fixes: node_layer writer
+had bypassed the split (divergent topology); splits were silent in the
+delineation path (now one summary print); `split_segment` labeling; `_fid_str`
+/ `SPLIT_LOG_COLUMNS` dedup. Known acceptable: appended segments inherit the
+parent's inverts/slope verbatim, so a conflicted parent flags on both halves
+(invert_conflict 267 → 268) — the fields are cross-checks only.
+
+**Results (real network):**
+- 38,359 → 38,385 pipe rows; weak components 148 → 133 (fragments joined).
+- 62112 in 24430's trace (541 → 568 pipes); parcel 222903 no longer contested.
+- component_141 (pipes 64951–64955, the 18.06 "missing parcels" case) now in
+  17863's trace — fixed WITHOUT a source-layer edit.
+- **New 2-node SCC exposed, not created:** pipes 62451/62452 are a duplicate
+  main digitized twice, one copy backwards; the split closed the loop that
+  the unsplit geometry hid. Flagged directed_cycle (open review item), far
+  southeast, touches no sample site. Same category as the known 08373/08374.
+- QA rerun: 1,076 flags — midspan_junction +26, disconnected_component
+  103 → 90, snap_gap 56 → 54, directed_cycle 1 → 2; 3 open review_required
+  (the 2 pre-existing + the duplicate-main cycle).
+- Median IoU unchanged: 0.79, 23/24 sites ≥ 0.5 (splits fix connectivity
+  without moving the boundary metric). Competing batch regenerated:
+  1,325 → 1,296 contested (597 review / 699 warning).
+
+**Decision (Grace, weld vs prior review):** the weld connected 2 locations
+Grace had reviewed as "no snap" (53476/53480/59316 and 00322/53297/62925) —
+surfaced rather than silently overridden. Grace approved keeping the
+connections: junction evidence (endpoint/MH on a pipe's interior) is stronger
+than the gap-pair view her review had. Decisions file comments annotated as
+superseded.
+
+**Consequence for the review batch:** QC/competing_pipe_review.csv was
+regenerated twice (post-split, post-weld); any decisions filled into the
+pre-split version would have been stale. Grace had not started — no loss.

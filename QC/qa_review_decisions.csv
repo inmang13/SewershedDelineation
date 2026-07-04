@@ -7,7 +7,7 @@ snap_gap,15458 / 17333,2039936.53,809076.99,resolved,,Genuinly do not connect. F
 snap_gap,34467 / 58880,2033216.44,846387.24,resolved,,"This is a treament plant or pump, both pipes end here. No snap gap"
 snap_gap,51545 / 51546 / 51548,2040007.52,828780.75,keep,,might be a snap gap. Appears to be a WWTP. Does not have big impact on anything (downstream pipe does not have any manholed)
 snap_gap,63153 / 63622,2031722,841133.44,resolved,,Genuinly do not connect. Flow goes in opposite directions.
-snap_gap,53476 / 53480 / 59316,2017825.91,820776.4,resolved,,"I see no issue,no snap"
+snap_gap,53476 / 53480 / 59316,2017825.91,820776.4,resolved,,"I see no issue,no snap [2026-07-03: superseded by midspan-junction split/weld - junction evidence (endpoint/MH on pipe interior); Grace approved keeping the connection]"
 snap_gap,12360 / 63249 / 64653,2022050.76,822712.14,resolved,,"I see no issue,no snap, just a small pipe, probably a lateral"
 snap_gap,63691 / 63692 / 63693,2049902.4,825907.19,resolved,,"no snap gap, just a weird pipe layout."
 snap_gap,63490 / 63491 / 63496 / 63497,2031852.71,831940.61,resolved,,"no snap gap, just a weird pipe layout."
@@ -39,7 +39,7 @@ snap_gap,55087 / 55088 / 55090,2027736.08,818299.95,resolved,,"no snap, lateral/
 snap_gap,63490 / 63491 / 63494 / 63495 / 63497,2031850.56,831938.66,resolved,,"no snap gap, just a weird pipe layout."
 snap_gap,63490 / 63491 / 63493 / 63494,2031846.94,831934.49,resolved,,"no snap gap, just a weird pipe layout."
 snap_gap,26242 / 64306 / 64308,2007548.41,798457.32,resolved,,"no snap, lateral/small pipe"
-snap_gap,00322 / 53297 / 62925,2062733.53,806658.42,resolved,,"no snap, wouldn’t have any impact"
+snap_gap,00322 / 53297 / 62925,2062733.53,806658.42,resolved,,"no snap, wouldn’t have any impact [2026-07-03: superseded by midspan-junction split/weld - junction evidence (endpoint/MH on pipe interior); Grace approved keeping the connection]"
 snap_gap,12958 / 52987,2026572.36,819735.55,resolved,,Genuinly do not connect. Flow goes in opposite directions.
 snap_gap,09236 / 09245,2032622.31,820463.53,resolved,,Genuinly do not connect. Flow goes in opposite directions.
 snap_gap,06345 / 06346,2008884.91,846291.37,resolved,,"no snap, lateral/small pipe"

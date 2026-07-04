@@ -169,11 +169,18 @@ def load_graph_from_config(cfg: dict):
 
     Manual snaps from the QA review decisions file (if configured) are applied
     here, so traversal and delineation trace the same human-repaired topology
-    that QA reports on.
+    that QA reports on. Midspan-junction splits (pipe_splits.py) are applied
+    before the snap for the same reason — one topology everywhere.
     """
     from qa_review import manual_snaps_from_config
+    from pipe_splits import apply_midspan_splits
     p = cfg["parameters"]
     pipes = gpd.read_file(cfg["inputs"]["gravity_main_shapefile"]).to_crs(p["crs"])
+    pipes, split_log = apply_midspan_splits(pipes, cfg)
+    if not split_log.empty:
+        print(f"Midspan splits: {len(split_log)} junction(s) on "
+              f"{split_log['parent_pidx'].nunique()} pipe(s) split in memory "
+              "(see midspan_junction QA flags)")
     G = build_graph(pipes,
                     p["node_snap_tolerance_ft"],
                     p.get("snap_gap_search_radius_ft", 10.0),

@@ -36,6 +36,15 @@ parameters:
   pipe_buffer_distance_ft: 50.0     # thin QC ribbon for low_population_match coverage check
   selection_radius_ft: 50.0         # buffer around pipes for population-unit selection (swept in validation)
 
+  # Midspan-junction splits (2026-07-03): T-junctions digitized without splitting
+  # the receiving main (lateral endpoint and/or manhole on a pipe's interior) are
+  # split in memory at load time so the network traces through them. The source
+  # layer is untouched; each junction gets a midspan_junction QA flag for the
+  # maintainer. See src/pipe_splits.py.
+  split_midspan_junctions: true
+  midspan_interior_tol_ft: 2.0        # how close to a pipe's interior counts as "on the pipe"
+  midspan_endpoint_exclusion_ft: 10.0 # junctions this close to the pipe's own endpoints belong to the snap/snap_gap machinery, not a split
+
   # Competing-pipe check (QC round 1 item 2): flag served parcels that a
   # DIFFERENT network's main also claims. review_required when a foreign pipe
   # crosses the parcel or is closer than the in-trace pipe; warning when a
@@ -81,6 +90,7 @@ parameters:
     - snap_gap
     - attribute_slope_error   # emitted name (was listed as negative_slope, which no check emits)
     - directed_cycle
+    - midspan_junction        # T-junction auto-split in memory; source layer needs a real split
 
   # Basemap under PDF maps. Plot is reprojected to EPSG:3857 for tile display only
   # (data on disk stays in `crs`). Requires internet at map time; degrades

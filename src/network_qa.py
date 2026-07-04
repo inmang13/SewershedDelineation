@@ -40,6 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from graph_builder import build_graph, invert_direction_conflicts, _num
 from node_layer import snap_endpoints
+from pipe_splits import apply_midspan_splits
 from qa_review import load_review_decisions, manual_snaps, apply_review
 
 
@@ -69,8 +70,18 @@ def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
     # writes and graph pidx values address the same rows.
     pipes = pipes.reset_index(drop=True)
 
+    # Midspan-junction splits — the same in-memory repair that
+    # load_graph_from_config applies, so QA flags describe the topology the
+    # tool actually traces. Split segments are appended rows (existing pidx
+    # values stay valid); each junction is flagged for the GIS maintainer.
+    pipes, split_log = apply_midspan_splits(pipes, cfg, manholes=manholes)
+
     pipes["QA_STATUS"] = "original"
     pipes["QA_FLAGS"]  = ""
+    # Appended split segments are tool-made geometry, not source rows — label
+    # them so the repaired shapefile / QC layers don't pass them off as data.
+    if not split_log.empty:
+        pipes.loc[split_log["new_pidx"].to_numpy(), "QA_STATUS"] = "split_segment"
 
     # Prior human review (QC decisions file): snap rows repair the graph below;
     # resolved/keep rows annotate the flags after the checks run.
@@ -81,6 +92,7 @@ def run_qa(cfg: dict) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, list[dict]]:
                     manual_snaps=manual_snaps(decisions))
 
     flags = []
+    flags += _check_midspan_junctions(split_log)
     flags += _check_missing_direction(pipes)
     flags += _check_invert_conflict(G, pipes)
     flags += _check_negative_slope(pipes, {f["pidx"] for f in flags
@@ -108,6 +120,35 @@ def _fid(row) -> str:
 # ---------------------------------------------------------------------------
 # Individual checks
 # ---------------------------------------------------------------------------
+
+def _check_midspan_junctions(split_log) -> list[dict]:
+    """
+    T-junctions digitized without splitting the receiving main.
+
+    These come from pipe_splits.apply_midspan_splits: a lateral endpoint and/or
+    manhole sits on this pipe's interior, so the tool has split the pipe in
+    memory and the network now traces through the junction. Severity is warning
+    (auto-repaired, same convention as tier-1 snap_gap) — but the source layer
+    still needs the pipe physically split at the junction, which only the GIS
+    maintainer can do.
+    """
+    flags = []
+    for _, r in split_log.iterrows():
+        flags.append({
+            "flag_type":  "midspan_junction",
+            "severity":   "warning",
+            "pipe_id":    str(r["facilityid"]),
+            "pidx":       int(r["parent_pidx"]),
+            "geometry":   Point(r["x"], r["y"]),
+            "description": (
+                f"Junction on this pipe's interior ({r['trigger']}: "
+                f"{r['sources']}) — the receiving main was never split there. "
+                "Auto-split in memory so the network traces through; split the "
+                "pipe at this point in the source layer to fix permanently."
+            ),
+        })
+    return flags
+
 
 def _check_missing_direction(pipes: gpd.GeoDataFrame) -> list[dict]:
     """
