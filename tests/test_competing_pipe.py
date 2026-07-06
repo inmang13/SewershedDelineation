@@ -180,94 +180,83 @@ def test_empty_served_set_annotates_without_error(pipes, parcels):
 # ---------------------------------------------------------------------------
 # Border/inner auto-exclude (Grace's rule, 2026-07-06):
 #
-#   "Label border vs inner parcels. A BORDER parcel that does NOT touch the
-#    trace pipe but IS crossed by a foreign pipe should not be in the sewershed
-#    — auto-exclude it. The same signal on an INNER parcel is a fragment to
-#    connect, not a parcel to drop — leave it in."
+#   "A BORDER parcel that does NOT touch the trace pipe but IS crossed by a
+#    foreign pipe should not be in the sewershed — auto-exclude it. The same
+#    signal on an INNER parcel is a fragment to connect, not a parcel to drop."
 #
-# Border/inner is judged against the CLOSED sewershed footprint (a polygon
-# passed to competing_pipe_check): within the footprint interior = inner, edge
-# = border. cp_excl == 1 marks the auto-exclude. Strict cp_din > 0 (no
-# tolerance): if an in-trace pipe crosses the parcel (cp_din == 0), it stays.
+# Border/inner comes from a LOCAL SURROUND test (_classify_border_inner): a unit
+# ringed by other served units on all sides is INNER, one whose ring pokes into
+# unserved space is BORDER. NOT judged against the closed footprint — its close
+# radius dilates the boundary past the real edge and mislabels edge units inner
+# (bug caught 2026-07-06 on 140112#0 / 106791#0). cp_excl requires border AND
+# cp_din > 0 AND cp_cross == 1.
 #
-# Toy geometry: in-trace main at x=0 (selection radius 50 ft). Footprint is the
-# box x∈[-50,90] — parcels living inside it read inner, parcels straddling x=90
-# read border. Two foreign mains cross one test parcel each.
+# In-trace main at x=0; foreign main at x=120 (crosses border test parcels) and
+# x=50 (crosses the surrounded inner parcel). Served sets are built directly so
+# the surround is controlled.
 # ---------------------------------------------------------------------------
 
 from shapely.geometry import box as _box  # noqa: E402
+from population_join import _classify_border_inner  # noqa: E402
 
-_FOOTPRINT = _box(-50, -20, 90, 420)
-
-
-@pytest.fixture()
-def excl_pipes():
-    return gpd.GeoDataFrame(
-        {"FACILITYID": ["IN0", "FB", "FI"]},
-        geometry=[
-            LineString([(0, 0), (0, 500)]),      # pidx 0 — in-trace
-            LineString([(120, 0), (120, 500)]),  # pidx 1 — foreign, crosses border parcels
-            LineString([(20, 0), (20, 500)]),    # pidx 2 — foreign, crosses the inner parcel
-        ],
-        crs=CRS,
-    )
+_EXCL_PIPES = gpd.GeoDataFrame(
+    {"FACILITYID": ["IN0", "FB", "FIN"]},
+    geometry=[LineString([(0, 0), (0, 500)]),      # pidx 0 — in-trace
+              LineString([(120, 0), (120, 500)]),  # pidx 1 — foreign (border parcels)
+              LineString([(50, 30), (50, 70)])],   # pidx 2 — foreign (inner parcel)
+    crs=CRS)
 
 
-@pytest.fixture()
-def excl_parcels():
-    # All three sit within the in-trace selection radius (left edge ≤ 50 ft from
-    # x=0) so assign_population_units keeps them.
-    return gpd.GeoDataFrame(
-        {"ALTPARNO": ["B_EDGE", "I_MID", "B_ONPIPE"]},
-        geometry=[
-            _box(35, 100, 130, 180),   # d_in 35 (>0); straddles footprint x=90 -> BORDER; FB crosses
-            _box(10, 260, 30, 340),    # d_in 10 (>0); inside footprint       -> INNER;  FI crosses
-            _box(-10, 400, 130, 420),  # d_in 0 (in-trace crosses); straddles x=90 -> BORDER; FB crosses
-        ],
-        crs=CRS,
-    )
+def _cpc(served, ring=15.0):
+    return competing_pipe_check(_EXCL_PIPES, [0], served, SEL_R,
+                                border_ring_ft=ring, border_min_expose=0.10)
 
 
-def _excl_annotated(pipes, parcels, footprint=_FOOTPRINT):
-    pop = assign_population_units(pipes, TRACE, parcels, SEL_R)
-    return competing_pipe_check(pipes, TRACE, pop.served, SEL_R, footprint=footprint)
-
-
-def _row(ann, pid):
-    return ann.loc[ann["ALTPARNO"] == pid].iloc[0]
-
-
-def test_border_parcel_foreign_cross_no_trace_touch_is_auto_excluded(excl_pipes, excl_parcels):
-    r = _row(_excl_annotated(excl_pipes, excl_parcels), "B_EDGE")
+def test_border_parcel_foreign_cross_no_trace_touch_is_auto_excluded():
+    # isolated parcel, foreign FB (x=120) crosses, in-trace 35 ft away -> border+excl
+    served = gpd.GeoDataFrame({"ALTPARNO": ["B_EDGE"]},
+                              geometry=[_box(35, 100, 130, 180)], crs=CRS)
+    r = _cpc(served).iloc[0]
     assert r["cp_pos"] == "border"
     assert r["cp_din"] > 0 and r["cp_cross"] == 1
     assert r["cp_excl"] == 1
 
 
-def test_inner_parcel_with_foreign_cross_is_protected(excl_pipes, excl_parcels):
-    """An inner parcel a foreign pipe crosses is a fragment to connect, not a
-    parcel to drop — cp_excl stays 0 even though cp_cross == 1."""
-    r = _row(_excl_annotated(excl_pipes, excl_parcels), "I_MID")
-    assert r["cp_pos"] == "inner"
-    assert r["cp_cross"] == 1
-    assert r["cp_excl"] == 0
-
-
-def test_in_trace_crossing_border_parcel_is_not_excluded(excl_pipes, excl_parcels):
-    """Strict cp_din > 0: if an in-trace pipe runs through the parcel
-    (cp_din == 0) it is decisively served, even on the border with a foreign
-    crossing."""
-    r = _row(_excl_annotated(excl_pipes, excl_parcels), "B_ONPIPE")
+def test_in_trace_crossing_border_parcel_is_not_excluded():
+    """Strict cp_din > 0: an in-trace pipe running through the parcel (cp_din==0)
+    is decisive — not excluded even on the border with a foreign crossing."""
+    served = gpd.GeoDataFrame({"ALTPARNO": ["B_ONPIPE"]},
+                              geometry=[_box(-10, 400, 130, 420)], crs=CRS)
+    r = _cpc(served).iloc[0]
     assert r["cp_din"] == 0 and r["cp_cross"] == 1
     assert r["cp_excl"] == 0
 
 
-def test_no_footprint_defaults_to_inner_and_never_excludes(excl_pipes, excl_parcels):
-    """Without a footprint, position is indeterminate — everything reads inner
-    and nothing auto-excludes (conservative)."""
-    ann = _excl_annotated(excl_pipes, excl_parcels, footprint=None)
-    assert set(ann["cp_pos"]) == {"inner"}
-    assert ann["cp_excl"].sum() == 0
+def test_surrounded_parcel_with_foreign_cross_is_inner_and_not_excluded():
+    """A parcel ringed by other served units is INNER — a foreign crossing is a
+    fragment to connect, not grounds to drop (cp_excl stays 0)."""
+    center = _box(40, 40, 60, 60)                 # foreign FIN (x=50) crosses it
+    # top/bottom span the full width so the ring corners are covered too.
+    ring = [_box(10, 60, 90, 90), _box(10, 10, 90, 40),      # top, bottom
+            _box(10, 40, 40, 60), _box(60, 40, 90, 60)]       # left, right
+    served = gpd.GeoDataFrame(
+        {"ALTPARNO": ["CENTER", "T", "B", "L", "R"]},
+        geometry=[center] + ring, crs=CRS)
+    r = _cpc(served).loc[served["ALTPARNO"] == "CENTER"].iloc[0]
+    assert r["cp_pos"] == "inner"
+    assert r["cp_cross"] == 1 and r["cp_excl"] == 0
+
+
+def test_classify_border_inner_surround_vs_exposed():
+    """The classifier itself: an isolated unit is border; one ringed by served
+    neighbours on all sides is inner."""
+    lone = gpd.GeoSeries([_box(0, 0, 10, 10)], crs=CRS)
+    assert _classify_border_inner(lone, 20.0, 0.10) == ["border"]
+    center = _box(40, 40, 60, 60)
+    ring = [_box(10, 60, 90, 90), _box(10, 10, 90, 40),   # top, bottom (full width)
+            _box(10, 40, 40, 60), _box(60, 40, 90, 60)]    # left, right
+    geoms = gpd.GeoSeries([center] + ring, crs=CRS)
+    assert _classify_border_inner(geoms, 20.0, 0.10)[0] == "inner"
 
 
 # ---------------------------------------------------------------------------

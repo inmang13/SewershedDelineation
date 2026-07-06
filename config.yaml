@@ -106,6 +106,14 @@ parameters:
   split_near_radius_ft: 100.0     # pipes within this of a unit feed its split
   split_densify_step_ft: 3.0      # point spacing along pipes for the Voronoi cut
 
+  # Border/inner label (competing check): a served unit is BORDER if more than
+  # border_min_expose of its border_ring_ft-wide outer ring is NOT covered by
+  # other served units (its edge faces unserved space), else INNER. Local
+  # surround test — NOT judged against the closed footprint, whose close radius
+  # would dilate the boundary past the real edge and mislabel edge units inner.
+  border_ring_ft: 75.0            # ring width; bridges typical street + setback
+  border_min_expose: 0.10         # >10% of ring uncovered -> border
+
   # Which flag types get individual PDF map pages. All flags always appear in the
   # CSV; this only controls the maps. Bulk completeness issues (isolated_manhole,
   # disconnected_component) are left CSV-only by default — they read fine as rows

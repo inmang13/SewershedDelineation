@@ -158,11 +158,12 @@ def main():
             g = build_boundary(units, method, served_union=u, close_ft=close_ft)
             return g, round(iou(g, truth), 4)
 
-        # Full footprint first — it both scores the pre-exclude IoU (iou0) and
-        # defines the closed boundary the border/inner label is judged against.
-        full_geom, score0 = _score(pop.served)
-        ann = competing_pipe_check(pipes, res.pidx_list, pop.served, sel_r,
-                                   footprint=full_geom, ignore_pidx=ignore_pidx)
+        full_geom, score0 = _score(pop.served)   # pre-exclude/split IoU (iou0)
+        ann = competing_pipe_check(
+            pipes, res.pidx_list, pop.served, sel_r,
+            border_ring_ft=params.get("border_ring_ft", 75.0),
+            border_min_expose=params.get("border_min_expose", 0.10),
+            ignore_pidx=ignore_pidx)
         id_col = unit_id_column(ann)
 
         # Drop the auto-excluded (cp_excl) border+din>0 units, then equidistant-

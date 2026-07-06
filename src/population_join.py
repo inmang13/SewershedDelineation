@@ -227,11 +227,44 @@ def assign_population_units(pipes: gpd.GeoDataFrame,
     return PopulationResult(served, buf, qc_buf)
 
 
+def _classify_border_inner(units_geom, ring_ft, min_expose):
+    """Label each served unit "border" or "inner" by a local surround test.
+
+    For each unit, take the ring of width `ring_ft` just outside it and measure
+    how much of that ring is NOT covered by other served units. A unit ringed by
+    served neighbours on all sides (streets bridged up to `ring_ft`) has a
+    near-fully-covered ring → INNER; a unit whose ring pokes into unserved space
+    (more than `min_expose` fraction uncovered) is on the sewershed edge → BORDER.
+
+    Independent of the output close radius — unlike judging against the closed
+    footprint, which mislabels edge units as inner because the close dilates the
+    boundary ~close_radius past the real served edge. Uses an STRtree so each
+    unit only unions its actual neighbours (O(n·k), not O(n^2)).
+    """
+    from shapely import STRtree
+    geoms = list(units_geom.values)
+    if not geoms:
+        return []
+    tree = STRtree(geoms)
+    labels = []
+    for i, g in enumerate(geoms):
+        ring = g.buffer(ring_ft).difference(g)
+        if ring.is_empty or ring.area <= 0:
+            labels.append("inner")
+            continue
+        neigh = [geoms[j] for j in tree.query(ring) if j != i]
+        others = unary_union(neigh) if neigh else None
+        uncovered = ring.area if others is None else ring.difference(others).area
+        labels.append("border" if uncovered / ring.area > min_expose else "inner")
+    return labels
+
+
 def competing_pipe_check(pipes: gpd.GeoDataFrame,
                          pidx_list,
                          served: gpd.GeoDataFrame,
                          selection_radius_ft: float,
-                         footprint=None,
+                         border_ring_ft: float = 75.0,
+                         border_min_expose: float = 0.10,
                          ignore_pidx=None) -> gpd.GeoDataFrame:
     """
     Annotate served units with competing-pipe metrics (QC round 1 item 2).
@@ -264,9 +297,10 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
     (decision_log 2026-07-02) — except cp_excl, an auto-exclude the consuming
     pass applies (border unit, foreign pipe crosses, no in-trace pipe touches).
 
-    `footprint` (optional): the closed sewershed boundary polygon used to label
-    each unit border/inner (see cp_pos below). Omit it and every unit defaults to
-    "inner" (nothing auto-excludes).
+    `border_ring_ft` / `border_min_expose`: the local surround test for the
+    border/inner label (see `_classify_border_inner`). A unit is BORDER if more
+    than `border_min_expose` of its `border_ring_ft`-wide neighbourhood is not
+    covered by other served units (its edge faces unserved space), else INNER.
 
     `ignore_pidx` (optional): positional indices of pipes to exclude from the
     foreign set — the small dangling networks (see graph_builder.small_dangling_pidx).
@@ -325,24 +359,19 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
                         how="inner", predicate="intersects").index.unique()
     out["cp_cross"] = out.index.isin(crossed).astype(int)
 
-    # Border vs inner position relative to the CLOSED sewershed footprint (the
-    # morphological-close boundary, passed as `footprint`). Closing is extensive
-    # so every served unit is contained in the footprint; a unit is INNER when it
-    # lies strictly inside and BORDER when its edge reaches the footprint
-    # perimeter. Judging against the closed footprint — not the raw parcel union
-    # — is essential: parcels don't tile (streets/ROW between them), so against
-    # the raw union nearly every unit reads as edge. The distinction is
-    # load-bearing for the auto-exclude below: a foreign pipe crossing a BORDER
-    # unit that no in-trace pipe touches means the unit is served by the
-    # neighbouring network; the same signal on an INNER unit is a connectivity
-    # gap (a dangling fragment to connect), not a unit to drop. Without a
-    # footprint, position is indeterminate — units default to "inner" so nothing
-    # auto-excludes (conservative).
-    if footprint is None or footprint.is_empty:
-        out["cp_pos"] = "inner"
-    else:
-        out["cp_pos"] = np.where(
-            out.geometry.within(footprint), "inner", "border")
+    # Border vs inner position by a LOCAL SURROUND test (see
+    # _classify_border_inner): a unit is INNER only if it is ringed by other
+    # served units on essentially all sides, BORDER if part of its `border_ring_ft`
+    # neighbourhood pokes into unserved space. This must NOT be judged against the
+    # morph-closed footprint — the close radius (e.g. 150 ft) dilates the output
+    # boundary that far past the real served edge, so a whole ring of genuine edge
+    # units falls "inside" it and reads as inner (bug caught 2026-07-06 on
+    # 140112#0 / 106791#0). The distinction is load-bearing: a foreign pipe
+    # crossing a BORDER unit is a neighbouring-network claim (split/exclude); the
+    # same on a truly-surrounded INNER unit is a connectivity gap to fix, not a
+    # unit to trim.
+    out["cp_pos"] = _classify_border_inner(
+        out.geometry, border_ring_ft, border_min_expose)
 
     # Auto-exclude (Grace's rule, 2026-07-06): a BORDER unit that no in-trace
     # pipe intersects (cp_din > 0, strict — no tolerance) but a foreign pipe

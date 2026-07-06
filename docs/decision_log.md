@@ -1071,3 +1071,43 @@ concurrent ArcGIS edits. Recovered from Grace's `-temp.shp` save.
 HER edit until told otherwise; never wholesale-rebuild an external data file;
 surgical row swaps only; always independently verify a subagent's data-write
 claims (per-feature, not aggregate).
+
+---
+
+## 2026-07-06 — Border/inner classification bug: closed-footprint moat → surround test
+
+**Bug (Grace caught, on 140112#0 and 106791#0):** the border/inner label judged
+each served unit by `within(morph_closed_footprint)`. But the close radius
+(150 ft) dilates the output boundary ~150 ft past the real served edge, so a
+whole ring of genuine EDGE units falls inside the closed polygon and reads
+`inner`. Measured on 140112#0: 0.0 ft from the raw served-union edge (truly on
+the border) yet 146.5 ft inside the closed footprint → mislabeled inner. Effect:
+genuine border-contested units were neither split nor excluded — they sat as
+noise in the review list (140112#0 should split; 106791#0, cp_din=1.1, should
+exclude). Any outward-dilating close creates this moat, so morph-close is the
+wrong reference for border detection.
+
+**Fix:** `population_join._classify_border_inner` — a LOCAL SURROUND test. For
+each unit, take the ring of width `border_ring_ft` (config, 75) just outside it
+and measure the fraction NOT covered by other served units; `> border_min_expose`
+(config, 0.10) uncovered → BORDER (edge faces unserved space), else INNER
+(ringed by neighbours, streets bridged up to the ring width). Independent of the
+output close radius. STRtree neighbour lookup (O(n·k), not O(n²)). Replaced the
+`footprint` param of `competing_pipe_check` with `border_ring_ft` /
+`border_min_expose`.
+
+**Result:** 140112#0 → border/din0 → **split**; 106791#0 → border/din1.1 →
+**exclude** (both now correct, both dropped from the contested_parcels layer).
+The test flips the ratio (~97% border / few truly-surrounded inner — correct for
+a sprawling sewershed) so more contested units are caught: exclude 49→56,
+split 42→48. **Median IoU held at 0.8538, 24/24 ≥ 0.5 — no over-trim** (the extra
+border units trimmed were genuinely neighbour-owned edges). Tests updated: the 4
+footprint-based border/inner tests replaced with surround-based ones (direct
+`_classify_border_inner` + exclude/split-through-`competing_pipe_check`), suite
+42 passing.
+
+**Note — threshold untuned:** `border_ring_ft` (75) and `border_min_expose`
+(0.10) are sensible defaults, not validated against a set. IoU is insensitive
+here (held exactly), but if a future site over-trims, raise `border_min_expose`
+(fewer units read border) — same lever as the earlier close-footprint margin,
+now with the right reference geometry.
