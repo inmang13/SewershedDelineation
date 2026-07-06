@@ -45,7 +45,7 @@ from graph_builder import (                                  # noqa: E402
 from traversal import trace_manhole, TargetResolutionError  # noqa: E402
 from population_join import (                               # noqa: E402
     load_units, assign_population_units, competing_pipe_check,
-    split_border_contested,
+    split_border_contested, assign_remaining_by_buffer,
 )
 from polygon_output import CP_SEVERITY, unit_id_column      # noqa: E402
 from boundary import build_boundary                         # noqa: E402
@@ -53,7 +53,8 @@ from validation import load_truth, iou                      # noqa: E402
 
 CSV_COLUMNS = [
     "tract", "manhole", "parcel", "severity", "cp_pos", "cp_din", "cp_dout",
-    "cp_fpipe", "cp_owner", "cp_cross", "cp_keep", "x", "y", "decision", "comment",
+    "cp_fpipe", "cp_owner", "cp_cross", "cp_keep", "cp_asgn", "x", "y",
+    "decision", "comment",
 ]
 
 
@@ -135,10 +136,12 @@ def main():
         return "; ".join(sorted(pidx_owner.get(int(fpidx), set()) - {own_tract}))
 
     csv_rows, parcel_rows, boundary_rows, truth_rows = [], [], [], []
-    iou_pairs = []   # (score_before, score_after exclude+split) per delineated site
+    iou_pairs = []   # (score_before, score_after all rules) per delineated site
     split_total = 0
+    asgn_keep_total = asgn_excl_total = 0
     print(f"\n{'tract':<16}{'manhole':<9}{'served':>7}{'contest':>8}"
-          f"{'review':>7}{'warn':>6}{'excl':>6}{'splt':>5}{'iou0':>7}{'iou':>7}")
+          f"{'review':>7}{'warn':>6}{'excl':>6}{'splt':>5}{'akp':>5}{'axc':>5}"
+          f"{'iou0':>7}{'iou':>7}")
     for sid in sorted(sites):
         tract = tract_of.get(sid, "")
         truth = sites[sid]
@@ -172,8 +175,15 @@ def main():
         kept = ann[ann["cp_excl"] == 0]
         split = split_border_contested(kept, pipes, res.pidx_list, sel_r, cfg,
                                        ignore_pidx=ignore_pidx)
-        geom, score = _score(split)
+        # Resolve the still-open contested units by buffered-pipe area (label
+        # only), then drop the exclude-assigned ones before building the boundary.
+        assigned = assign_remaining_by_buffer(split, pipes, res.pidx_list, cfg,
+                                              ignore_pidx=ignore_pidx)
+        for_boundary = assigned[assigned["cp_asgn"] != "exclude"]
+        geom, score = _score(for_boundary)
         n_excl = int((ann["cp_excl"] == 1).sum())
+        n_asgn_excl = int((assigned["cp_asgn"] == "exclude").sum())
+        n_asgn_keep = int((assigned["cp_asgn"] == "keep").sum())
         if geom is not None and not geom.is_empty:
             boundary_rows.append({"SiteID": sid, "tract": tract, "iou": score,
                                   "method": method, "sel_r": sel_r,
@@ -196,19 +206,29 @@ def main():
                     split_keep[uid] = 0.0
         n_split = len(split_keep)
 
+        # Buffered-pipe assignment per unit id (keep / exclude), for the row loop.
+        asgn_map = {}
+        if id_col and "cp_asgn" in assigned.columns:
+            for uid, a in zip(assigned[id_col].astype(str), assigned["cp_asgn"]):
+                if a:
+                    asgn_map[uid] = a
+
         iou_pairs.append((score0, score))
         split_total += n_split
+        asgn_keep_total += n_asgn_keep
+        asgn_excl_total += n_asgn_excl
         hit = ann[ann["cp_flag"] != ""]
         n_rev = int((hit["cp_flag"] == "review").sum())
         print(f"{tract:<16}{sid:<9}{len(ann):>7}{len(hit):>8}"
               f"{n_rev:>7}{len(hit) - n_rev:>6}{n_excl:>6}{n_split:>5}"
-              f"{score0:>7.2f}{score:>7.2f}")
+              f"{n_asgn_keep:>5}{n_asgn_excl:>5}{score0:>7.2f}{score:>7.2f}")
 
         for idx, r in hit.iterrows():
             c = r.geometry.representative_point()
             pid = str(r[id_col]) if id_col else str(idx)
             auto = int(r["cp_excl"]) == 1
             was_split = pid in split_keep
+            asgn = asgn_map.get(pid, "")
             keepfrac = split_keep.get(pid, 0.0 if auto else 1.0)
             if auto:
                 decision, comment = "exclude", ("auto: border parcel, foreign pipe "
@@ -217,6 +237,12 @@ def main():
                 decision = "split"
                 comment = (f"auto: equidistant split, kept {keepfrac*100:.0f}% "
                            "(in-trace side)")
+            elif asgn == "exclude":
+                decision, comment = "exclude", ("auto: buffered-pipe area — a "
+                                                "foreign pipe's buffer covers more")
+            elif asgn == "keep":
+                decision, comment = "keep", ("auto: buffered-pipe area — an "
+                                             "in-trace pipe's buffer covers more")
             else:
                 decision, comment = "", ""
             rec = {
@@ -232,6 +258,7 @@ def main():
                 "cp_owner": owner_of(r.get("cp_fpidx"), tract),
                 "cp_cross": int(r["cp_cross"]),
                 "cp_keep": round(keepfrac, 2),
+                "cp_asgn": asgn,
                 "x": round(c.x, 2),
                 "y": round(c.y, 2),
                 # Auto decisions are pre-filled so Grace audits/overrides rather
@@ -240,11 +267,11 @@ def main():
                 "comment": comment,
             }
             csv_rows.append(rec)
-            # The spatial layer holds only the OPEN review parcels. Already-decided
-            # units — auto-excluded OR equidistant-split — stay in the CSV (audit
-            # record) but drop from contested_parcels so the GIS layer shows just
-            # what Grace still needs to look at (per Grace, 2026-07-06).
-            if not auto and not was_split:
+            # contested_parcels holds the parcels still IN the shed (not excluded,
+            # not split into a partial piece) — i.e. decision blank or "keep" — so
+            # the GIS layer shows the kept/undecided parcels with their cp_asgn for
+            # audit. Excluded and split units live in the CSV record only.
+            if decision not in ("exclude", "split"):
                 parcel_rows.append({**{k: v for k, v in rec.items()
                                        if k not in ("decision", "comment")},
                                     "geometry": r.geometry})
@@ -266,20 +293,24 @@ def main():
         gpkg_path, layer="truth", driver="GPKG")
 
     n_rev = sum(r["severity"] == "review_required" for r in csv_rows)
-    n_auto = sum(r["decision"] == "exclude" for r in csv_rows)
+    n_border_excl = sum(r["decision"] == "exclude" for r in csv_rows) \
+        - asgn_excl_total
     print(f"\nContested parcels: {len(csv_rows)} "
           f"({n_rev} review_required, {len(csv_rows) - n_rev} warning)")
-    print(f"Auto-excluded (border + foreign-cross + no trace touch): {n_auto} "
-          "parcels, decision pre-filled 'exclude' - in CSV only, dropped from "
-          "contested_parcels layer")
+    print(f"Border auto-excluded (foreign-cross, no in-trace touch): "
+          f"{n_border_excl}")
     print(f"Equidistant-split (border + both pipes cross, cp_din==0): "
           f"{split_total} units kept partial")
+    print(f"Buffered-pipe assignment (remaining contested): "
+          f"{asgn_keep_total} kept, {asgn_excl_total} excluded")
+    print("(excluded + split parcels are in the CSV record only, dropped from "
+          "the contested_parcels layer)")
     if iou_pairs:
         med0 = statistics.median(s0 for s0, _ in iou_pairs)
         med1 = statistics.median(s1 for _, s1 in iou_pairs)
         ge0 = sum(s1 >= 0.5 for _, s1 in iou_pairs)
-        print(f"Median IoU: {med0:.4f} before -> {med1:.4f} after exclude+split "
-              f"({ge0}/{len(iou_pairs)} sites >= 0.5)")
+        print(f"Median IoU: {med0:.4f} before -> {med1:.4f} after "
+              f"exclude+split+buffer-assign ({ge0}/{len(iou_pairs)} sites >= 0.5)")
     for s in statuses:
         print(f"  [skipped delineation] {s['tract']} {s['manhole']}: {s['status']}")
     print(f"Wrote: {csv_path}")

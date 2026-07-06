@@ -114,6 +114,14 @@ parameters:
   border_ring_ft: 75.0            # ring width; bridges typical street + setback
   border_min_expose: 0.10         # >10% of ring uncovered -> border
 
+  # Buffered-pipe area assignment for the still-open contested units (those not
+  # resolved by split/exclude): buffer each competing pipe and assign the unit to
+  # the pipe whose buffer covers the most of it — in-trace wins -> keep, foreign
+  # wins -> exclude (drop). competing_assign_buffer_ft defaults to
+  # selection_radius_ft if unset.
+  competing_assign_by_buffer: true
+  competing_assign_buffer_ft: 50.0
+
   # Which flag types get individual PDF map pages. All flags always appear in the
   # CSV; this only controls the maps. Bulk completeness issues (isolated_manhole,
   # disconnected_component) are left CSV-only by default — they read fine as rows

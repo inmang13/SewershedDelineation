@@ -396,6 +396,17 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
     return out
 
 
+def _near_pipes_by_side(pipes, unit, radius_ft, trace, ignore):
+    """Positional indices of pipes within `radius_ft` of `unit`, split into
+    (in_trace, foreign) — foreign excludes the trace and the ignored dangling
+    stubs. Shared by the split and buffer-assignment passes."""
+    d = pipes.geometry.distance(unit)
+    near = set(np.where(d.values <= radius_ft)[0])
+    in_pos = [i for i in near if i in trace]
+    for_pos = [i for i in near if i not in trace and i not in ignore]
+    return in_pos, for_pos
+
+
 def _densify_pipe_points(pipes, positions, step_ft):
     """Points sampled every `step_ft` along each pipe at `positions`."""
     pts = []
@@ -487,10 +498,7 @@ def split_border_contested(served_ann: gpd.GeoDataFrame,
     drop_idx = []
     for idx in out.index[target]:
         unit = out.at[idx, "geometry"]
-        d = pipes.geometry.distance(unit)
-        near = set(np.where(d.values <= near_ft)[0])
-        in_pos = [i for i in near if i in trace]
-        for_pos = [i for i in near if i not in trace and i not in ignore]
+        in_pos, for_pos = _near_pipes_by_side(pipes, unit, near_ft, trace, ignore)
         if not in_pos or not for_pos:
             continue                      # can't split — leave whole
         kept = _equidistant_keep(unit, pipes, in_pos, for_pos, step_ft)
@@ -501,4 +509,63 @@ def split_border_contested(served_ann: gpd.GeoDataFrame,
         out.at[idx, "cp_keep"] = kept.area / unit.area
     if drop_idx:
         out = out.drop(index=drop_idx)
+    return out
+
+
+def assign_remaining_by_buffer(served_ann: gpd.GeoDataFrame,
+                               pipes: gpd.GeoDataFrame,
+                               pidx_list,
+                               cfg: dict,
+                               ignore_pidx=None) -> gpd.GeoDataFrame:
+    """
+    Resolve the still-open contested units by buffered-pipe area (Grace's rule,
+    2026-07-06): buffer each competing pipe and assign the unit to the pipe whose
+    buffer covers the most of it — in-trace pipe wins → keep, foreign pipe wins →
+    exclude (drop the unit).
+
+    Applies only to units still flagged contested and not already resolved by the
+    split/exclude passes (`cp_flag != ""` and `cp_keep == 1.0` — a split unit has
+    cp_keep < 1). The winner is decided on AGGREGATE buffer area: area(unit ∩
+    union(in-trace pipe buffers)) vs area(unit ∩ union(foreign pipe buffers)),
+    ties → keep. Aggregating (not a single best pipe) so a unit fed by several
+    in-trace mains isn't lost to one foreign pipe. Foreign pipes in `ignore_pidx`
+    (dangling stubs) don't compete.
+
+    Config `competing_assign_buffer_ft` (default = `selection_radius_ft`) is the
+    buffer radius; candidate pipes are those within it of the unit. Adds `cp_asgn`
+    ("keep"/"exclude"/"" for units not evaluated) — LABEL ONLY, no rows dropped;
+    the caller drops `cp_asgn == "exclude"` before building the boundary (keeps
+    the counts easy and the CSV complete).
+    """
+    params = cfg["parameters"]
+    out = served_ann.copy()
+    out["cp_asgn"] = ""
+    if not params.get("competing_assign_by_buffer", True) or out.empty:
+        return out
+
+    buf_ft = params.get("competing_assign_buffer_ft",
+                        params.get("selection_radius_ft", 50.0))
+    trace = set(pidx_list)
+    ignore = set(ignore_pidx or ())
+    keep_col = out["cp_keep"] if "cp_keep" in out.columns else 1.0
+    mask = (out["cp_flag"] != "") & (keep_col == 1.0)
+
+    def _agg_area(unit, positions):
+        bufs = [pipes.iloc[i].geometry.buffer(buf_ft) for i in positions
+                if pipes.iloc[i].geometry is not None
+                and not pipes.iloc[i].geometry.is_empty]
+        if not bufs:
+            return 0.0
+        return unit.intersection(unary_union(bufs)).area
+
+    # Candidate pipes are limited to within buf_ft of the unit — a pipe farther
+    # than the buffer radius can't overlap the unit anyway. NOTE: this ties the
+    # competing set to buf_ft; if buf_ft is ever set below the selection radius,
+    # a pipe that selected the unit but sits beyond buf_ft won't compete.
+    for idx in out.index[mask]:
+        unit = out.at[idx, "geometry"]
+        in_pos, for_pos = _near_pipes_by_side(pipes, unit, buf_ft, trace, ignore)
+        a_in = _agg_area(unit, in_pos)
+        a_for = _agg_area(unit, for_pos)
+        out.at[idx, "cp_asgn"] = "exclude" if a_for > a_in else "keep"
     return out

@@ -1111,3 +1111,46 @@ footprint-based border/inner tests replaced with surround-based ones (direct
 here (held exactly), but if a future site over-trims, raise `border_min_expose`
 (fewer units read border) — same lever as the earlier close-footprint margin,
 now with the right reference geometry.
+
+---
+
+## 2026-07-06 — Buffered-pipe area assignment for remaining contested parcels
+
+**Grace's rule:** for the contested parcels still open after split/exclude,
+"buffer the competing pipes; assign the parcel to the pipe with the most area
+intersecting the buffer" — in-trace wins → keep, foreign wins → exclude.
+
+**Implementation** (`population_join.assign_remaining_by_buffer`, wired into
+`run_competing_review` after the split, config `competing_assign_by_buffer` /
+`competing_assign_buffer_ft`). Applies only to units still flagged
+(`cp_flag != ""`) and not already resolved (`cp_keep == 1.0`). For each: candidate
+pipes within the buffer distance; **aggregate** area = area(unit ∩ union(in-trace
+pipe buffers)) vs area(unit ∩ union(foreign pipe buffers)); ties → keep. Adds
+`cp_asgn` (keep/exclude), LABEL ONLY — the runner drops `cp_asgn=="exclude"`
+before the boundary. Excluded + split parcels leave the contested_parcels gpkg
+layer (CSV keeps the record); assign-keep parcels stay in the layer with cp_asgn
+for audit.
+
+**Decision — aggregate, not single-best-pipe (Grace):** first cut compared the
+single best in-trace pipe to the single best foreign pipe; a parcel fed by
+several in-trace mains could lose to one foreign pipe. Aggregating the buffers
+(union each side) fixes that. Empirically near-identical median but slightly
+fewer excludes (437 vs 441) and it recovered the two sites the single-pipe
+version dipped (22: 0.80→0.81, 13.01: 0.76→0.78). Buffer radius = 50 ft
+(selection radius) for now.
+
+**Result (24 sites, sel_r=50 / close=150, 07062026 truth):** 665 kept, 437
+excluded. **Median IoU 0.8538 → 0.8622, 24/24 ≥ 0.5** (best yet). Mostly flat or
+small gains; no site below 0.5. The 437 excludes are parcels whose foreign-main
+buffer covers more of them than any in-trace main — geometrically leaning to the
+neighbour.
+
+**Tests:** 4 added (`tests/test_competing_pipe.py`): in-trace-buffers-cover-more
+→ keep; foreign-covers-more → exclude; unflagged/split units not evaluated;
+aggregate-beats-single-foreign (the case that justifies the union). Suite 24 in
+that file / full suite passing.
+
+**Open:** the assignment auto-decides ~1,100 parcels (665 keep / 437 exclude);
+Grace can override any in the CSV decision column. Buffer radius and single-vs-
+aggregate are the levers if a site over-trims. Demographic apportionment for the
+excluded/split parcels remains the deferred downstream cost.

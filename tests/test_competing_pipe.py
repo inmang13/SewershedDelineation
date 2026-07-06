@@ -332,3 +332,82 @@ def test_border_foreign_only_din_gt_0_is_not_split():
     out = split_border_contested(served, _split_pipes(), [0], 50.0, _SPLIT_CFG,
                                  ignore_pidx=set())
     assert out["cp_keep"].iloc[0] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Buffered-pipe area assignment for remaining contested units (Grace, 2026-07-06):
+#
+#   "Buffer the competing pipes. Assign the parcel to the pipe with the most
+#    area intersecting the buffer." + "aggregate in-trace buffers."
+#
+# AGGREGATE: area(unit ∩ union(in-trace pipe buffers)) vs area(unit ∩ union(
+# foreign pipe buffers)); in-trace wins (>=) -> keep, foreign wins -> exclude.
+# Label only (no rows dropped); only still-open contested units (cp_flag != ""
+# and cp_keep == 1) are evaluated.
+# ---------------------------------------------------------------------------
+
+from population_join import assign_remaining_by_buffer  # noqa: E402
+
+_ASGN_PIPES = gpd.GeoDataFrame(
+    {"FACILITYID": ["INA", "INB", "FOR"]},
+    geometry=[LineString([(0, 0), (0, 200)]),      # pidx 0 in-trace
+              LineString([(40, 0), (40, 200)]),    # pidx 1 in-trace
+              LineString([(100, 0), (100, 200)])], # pidx 2 foreign
+    crs=CRS)
+_ASGN_TRACE = [0, 1]
+
+
+def _asgn_cfg(buf=50.0):
+    return {"parameters": {"competing_assign_by_buffer": True,
+                           "competing_assign_buffer_ft": buf}}
+
+
+def _served_asgn(rows):   # rows: (id, cp_flag, cp_keep, geom)
+    return gpd.GeoDataFrame(
+        {"ALTPARNO": [r[0] for r in rows], "cp_flag": [r[1] for r in rows],
+         "cp_keep": [r[2] for r in rows]},
+        geometry=[r[3] for r in rows], crs=CRS)
+
+
+def _asgn_of(out, pid):
+    return out.loc[out["ALTPARNO"] == pid, "cp_asgn"].iloc[0]
+
+
+def test_assign_keep_when_in_trace_buffers_cover_more():
+    served = _served_asgn([("P", "review", 1.0, _box(10, 0, 30, 20))])  # near x=0
+    out = assign_remaining_by_buffer(served, _ASGN_PIPES, _ASGN_TRACE,
+                                     _asgn_cfg(), ignore_pidx=set())
+    assert _asgn_of(out, "P") == "keep"
+    assert len(out) == 1                       # label only, no rows dropped
+
+
+def test_assign_exclude_when_foreign_buffer_covers_more():
+    served = _served_asgn([("P", "review", 1.0, _box(95, 0, 115, 20))])  # on x=100
+    out = assign_remaining_by_buffer(served, _ASGN_PIPES, _ASGN_TRACE,
+                                     _asgn_cfg(), ignore_pidx=set())
+    assert _asgn_of(out, "P") == "exclude"
+
+
+def test_unflagged_and_split_units_are_not_evaluated():
+    served = _served_asgn([("CLEAN", "", 1.0, _box(10, 0, 30, 20)),
+                           ("SPLIT", "review", 0.5, _box(95, 0, 115, 20))])
+    out = assign_remaining_by_buffer(served, _ASGN_PIPES, _ASGN_TRACE,
+                                     _asgn_cfg(), ignore_pidx=set())
+    assert _asgn_of(out, "CLEAN") == ""        # not contested
+    assert _asgn_of(out, "SPLIT") == ""        # already split (cp_keep < 1)
+
+
+def test_aggregate_in_trace_beats_a_single_foreign_pipe():
+    """The point of aggregating: neither in-trace pipe alone covers more of the
+    unit than the foreign pipe, but the UNION of the two in-trace buffers does,
+    so the unit is kept (a single-best-pipe rule would have excluded it)."""
+    pipes = gpd.GeoDataFrame(
+        {"FACILITYID": ["INA", "INB", "FOR"]},
+        geometry=[LineString([(10, 0), (10, 20)]),    # in-trace, covers left
+                  LineString([(90, 0), (90, 20)]),    # in-trace, covers right
+                  LineString([(50, 0), (50, 20)])],   # foreign, covers middle
+        crs=CRS)
+    served = _served_asgn([("P", "review", 1.0, _box(0, 0, 100, 20))])
+    out = assign_remaining_by_buffer(served, pipes, [0, 1], _asgn_cfg(buf=15.0),
+                                     ignore_pidx=set())
+    assert _asgn_of(out, "P") == "keep"        # union(2 in-trace) 50 > foreign 30
