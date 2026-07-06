@@ -916,3 +916,158 @@ deliverable + competing batch + real-network edit check, all on committed
 (render-verified: 20 nodes, no Mermaid error). Ph1–6/8 done; new load-time
 repair layer (splits/edits/snaps) done; **Ph7 multi-site `run.py` is the one
 open pipeline gap** (partial — loop exists across runners, not unified).
+
+---
+
+## 2026-07-06 — Border/inner parcel labeling + auto-exclude rule (Grace)
+
+**Origin:** Walking parcel 196966 (Tract 10.02, manhole 30659), flagged
+`review_required`: no in-trace pipe touches it (`cp_din` = 31.9 ft — selected only
+because an in-trace main clipped its 50 ft buffer) but foreign pipe 51960 runs
+straight through it (`cp_cross` = 1). Graph check confirmed 51960 sits in the
+same connected network but drains to a *different* outlet (its flow never reaches
+30659's target node), so it is a neighbouring sub-basin's main, not a fragment to
+connect. 196966 belongs to the neighbour → should be excluded.
+
+**Grace's rule:** Label each served unit **border** vs **inner**. Inner units get
+checked for fragments (dangling 2–3 pipe networks to connect); border units get a
+different test — *a border unit that does NOT touch the trace pipe but IS crossed
+by a foreign pipe should not be in the sewershed.* Auto-exclude those.
+
+**Why the border/inner split is load-bearing:** the same signal (foreign pipe
+crosses a unit no in-trace pipe touches) means opposite things by position. On a
+**border** unit it means the unit belongs to a neighbouring network → drop it. On
+an **inner** unit it means a foreign fragment passes through → *connect* the
+fragment (split/snap/extend), never carve a donut hole in the sewershed. Applying
+the exclude everywhere would punch holes; the label prevents that.
+
+**Decision (implementation):**
+- `population_join.competing_pipe_check` gained an optional `footprint` polygon
+  arg and two columns: `cp_pos` ("border"/"inner") and `cp_excl` (0/1).
+- **Border/inner is judged against the CLOSED morphological-close footprint**, not
+  the raw parcel union. Closing is extensive (footprint ⊇ every served unit), so a
+  unit is **inner** iff `served.within(footprint)` (strictly interior) and
+  **border** iff its edge reaches the perimeter. This is essential: parcels don't
+  tile (streets/ROW between them), so against the raw union ~every unit reads as
+  edge (2,351 border / 1 inner at 30659 — useless). Against the closed footprint:
+  133 border / 2,219 inner. **No tuning parameter** — plain `within`, honouring
+  Grace's "no tolerance."
+- **Auto-exclude:** `cp_excl = (cp_pos == "border") & (cp_din > 0) & (cp_cross == 1)`.
+  Strict `cp_din > 0` (no tolerance, Grace's call). Foreign-*near*-not-crossing
+  border units are left as review flags (Grace reviews those separately).
+- `run_competing_review.py` builds the full footprint once (it both scores the
+  pre-exclude IoU and defines the border label), drops `cp_excl == 1` units,
+  rebuilds the boundary, and reports IoU before→after. Auto-excluded units are
+  written to `QC/competing_pipe_review.csv` with `decision` pre-filled `exclude`
+  and a comment (Grace audits/overrides rather than re-deciding each).
+- **Auto-excluded units are dropped from the `contested_parcels` GeoPackage
+  layer** (Grace, 2026-07-06) — they stay in the CSV as the audit record, but the
+  spatial layer is trimmed to the OPEN review parcels only (1,165 of 1,215), so
+  the GIS layer shows just what still needs a look. Otherwise an already-decided
+  exclude looked identical in GIS to an open flag.
+
+**Result (24 sites, sel_r=50 / morph_close close=150):**
+- 50 parcels auto-excluded; **median IoU 0.8092 → 0.8439 (+0.035)**, 23/24 ≥ 0.5.
+- **No site regressed** — every affected site improved or held flat (30659
+  0.76→0.85, Tract 5 0.78→0.87, Tract 3.01 0.87→0.92). Monotonic improvement is
+  the empirical validation that the rule only removes neighbour-owned units.
+- Weakest site 29962 (Tract 1.02) unchanged at 0.37 — its problem is the
+  highway-ramp gap, not border over-inclusion, as expected.
+- 233 contested units are **inner** (foreign-crossed but protected) — the fragment
+  cases Grace will investigate separately.
+
+**Tests (from Grace's stated rule):** 4 added to `tests/test_competing_pipe.py`
+(border+cross+no-touch → excluded; inner+cross → protected; in-trace-crossing
+border cp_din==0 → not excluded; no footprint → all inner, nothing excludes).
+Full suite 38 passing. Testing gate: Grace to read the 4 new tests before they
+count as standing regression coverage.
+
+**Still flag-only for the review batch:** the exclude is applied inside
+`run_competing_review.py` to show the IoU effect, but the production delineation
+path (`run_polygon_output.py`) does not yet consume `cp_excl` — that is the
+consuming pass (roadmap QC item 2b), still pending a persisted decisions file.
+
+---
+
+## 2026-07-06 — Multipart explode + equidistant split of border-contested parcels
+
+Session also added (earlier, same day): border/inner labeling + auto-exclude
+(196966), dangling-network ignore (≤3-pipe stubs, config
+`competing_ignore_dangling_max_pipes`; test parcel 138509), pipe `delete` of
+overflow 33250, and the 1.02+CB1 truth-polygon merge (see the truth-file note
+below). This entry covers the two parcel-geometry features Grace approved after
+the split prototype.
+
+**Feature 1 — explode multipart parcels into parts** (`population_join._explode_to_parts`,
+called from `load_units`, config `explode_multipart_units` default on). A
+multipart parcel is one assessor record digitized as several disjoint polygons;
+served whole, ONE part touching a foreign main flagged the entire record, and a
+part beyond the selection radius rode in on its siblings. Exploding makes each
+part an independent selection/contest unit. Unique `PARTID = <ALTPARNO>#<n>`;
+original ALTPARNO kept for the deferred demographic join; `unit_id_column` now
+prefers PARTID (ALTPARNO/GEOID20 are non-unique across parts — every id-keyed
+site had to switch or parts would collide). Validated on 137546 (4 parts):
+parts 0/1 clean-kept, part 2 contested, **part 3 dropped** (no in-trace pipe
+within the selection radius — over-inclusion fix, free).
+
+**Feature 2 — equidistant split of border-contested parcels**
+(`population_join.split_border_contested` + `_equidistant_keep`). For a unit that
+is **border AND cp_cross==1 AND cp_din==0** (an in-trace pipe AND a foreign pipe
+both cross it — Grace's "intersected by foreign and trace pipes"), the geometry
+is replaced by the sub-area closer to an in-trace pipe than any foreign pipe, via
+a **Voronoi partition of densified pipe points** (the equidistant line is the
+cut). Config `split_near_radius_ft` (100), `split_densify_step_ft` (3). Empty
+keep → the unit is dropped. Adds `cp_keep` (fraction retained).
+
+**Decision (Option A, advisor-caught):** split condition requires `cp_din==0`.
+The naive `border AND cross` would have swept in 196966 (border, cp_din=31.9,
+foreign-only) and kept ~13% of it — silently overriding its signed-off full
+**exclude**. So the two mechanisms are mutually exclusive: `cp_din>0` → full
+exclude (`cp_excl`, 196966 → 0%); `cp_din==0` → split (137546 part 2 → 46%);
+inner → never split. Verified 196966 stays fully excluded, 137546#2 splits 46/54.
+
+**Split parcels drop from the `contested_parcels` gpkg layer** (Grace) — like
+auto-excludes, they stay in the CSV (decision pre-filled `split`, `cp_keep` +
+comment) but leave the GIS layer, which now shows only OPEN review parcels.
+
+**Results (24 sites, sel_r=50 / close=150, vs Grace's tweaked 07062026 truth):**
+- 42 units split, 49 auto-excluded. **Median IoU 0.8135 → 0.8538 after
+  exclude+split; 24/24 sites ≥ 0.5** (best yet). Big movers: 3.02 0.83→0.91,
+  17.05 0.84→0.89, 5 0.78→0.87.
+- **NOT monotonic** (unlike the border-exclude): the split is geometry-based, not
+  truth-validated, so it can trim real area. 4 sites dipped slightly — 20.29
+  0.76→0.74 (5 splits), 20.20 0.69→0.68, 3.01 0.87→0.86, 18.01 0.94→0.93. Net
+  median still up; watch 20.29. Prototypes: `output/proto_split_140112.gpkg`,
+  `output/proto_split_137546.gpkg` (+ PNGs in `output/preview_png/`).
+
+**Demographic cost (deferred, but real):** a split/part unit no longer maps 1:1
+to an assessor/ACS record — its population must be area-apportioned from the
+parent parcel (uniform-density assumption). Blocks nothing geometric now; the
+thing to resolve before the demographic join.
+
+**Tests:** 4 added to `tests/test_competing_pipe.py` (explode → unique PARTID +
+kept ALTPARNO; border+both-cross → split ~50%; inner → never split; border+din>0
+→ not split). Full suite 42 passing. Testing gate: Grace to read the 4 new tests.
+
+---
+
+## 2026-07-06 — Truth-polygon file: CB1 merge into 1.02, archive, and a near-miss
+
+**CB1 merge:** Grace directed merging monitoring basin **CB1** (from
+`RDII/.../MonitoringBasins.shp`, col `MONITORBAS`) into the Tract 1.02 truth
+polygon (SiteID 29962) to correct an under-drawn catchment. Old truth archived to
+`CommunityWastewaterDashboard/.../archive/07062026/Sampling_Polygons_05212026.*`;
+new active file `Sampling_Polygons_07062026.shp` (config `validation_truth_polygons`
+repointed). 1.02 truth area ~101.7M → ~203.5M ft². Result: **1.02 IoU 0.37 → 0.68+**
+— it is no longer the weak site.
+
+**Near-miss (process lesson):** a subagent's write of the new file silently
+corrupted 3 non-target polygons (17.12 destroyed −99.5%, 30804/31067 shifted);
+its "23 geometries identical" self-verification was false. Caught by an
+independent per-row area diff after 17.12 scored IoU 0.00. Compounded by MY error:
+I then did a full rebuild from the archived baseline, which reverted Grace's
+concurrent ArcGIS edits. Recovered from Grace's `-temp.shp` save.
+**Lesson:** Grace edits truth in ArcGIS concurrently — treat any detected diff as
+HER edit until told otherwise; never wholesale-rebuild an external data file;
+surgical row swaps only; always independently verify a subagent's data-write
+claims (per-feature, not aggregate).

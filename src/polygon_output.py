@@ -52,10 +52,17 @@ FLAG_COLUMNS = ["flag_type", "severity", "manhole", "parcel", "description"]
 CP_SEVERITY = {"review": "review_required", "warning": "warning"}
 
 
+# Per-record id columns (before any explode): parcels use ALTPARNO, census
+# blocks GEOID20. PARTID is the unique per-part id added by _explode_to_parts.
+BASE_UNIT_ID_COLUMNS = ("ALTPARNO", "GEOID20")
+
+
 def unit_id_column(units):
-    """The identifier column of a population-unit GeoDataFrame (parcels use
-    ALTPARNO, census blocks GEOID20), or None if neither exists."""
-    return next((c for c in ("ALTPARNO", "GEOID20") if c in units.columns), None)
+    """The identifier column of a population-unit GeoDataFrame. Prefers PARTID
+    (the unique per-part id added when multipart units are exploded — the base
+    ids are non-unique across parts), else the base per-record id, or None."""
+    return next((c for c in ("PARTID",) + BASE_UNIT_ID_COLUMNS
+                 if c in units.columns), None)
 
 
 def _acres(geom) -> float:

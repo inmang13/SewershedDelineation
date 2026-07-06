@@ -21,6 +21,8 @@ finding; Phase 6 owns any delineation-level flags.
 
 import geopandas as gpd
 import numpy as np
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 
 class PopulationResult:
@@ -130,17 +132,50 @@ def load_census_blocks(cfg: dict) -> gpd.GeoDataFrame:
     return blk
 
 
+def _explode_to_parts(units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Explode multipart units into single-part rows and stamp a unique ``PARTID``.
+
+    A multipart parcel (one assessor record, several disjoint polygons) is served
+    as a whole today, so ONE part touching a foreign main flags the entire record
+    and a part beyond the selection radius rides in on its siblings. Exploding
+    lets each part be selected and contested on its own — most parts go clean, and
+    ride-along parts drop out.
+
+    ``PARTID`` = ``<original id>#<part index>`` (falls back to the row position
+    when the layer has no id column). The original id column is left intact for the
+    downstream demographic join; a split part carries its parent's attributes and
+    is apportioned later.
+    """
+    from polygon_output import BASE_UNIT_ID_COLUMNS
+    exploded = units.explode(index_parts=False).reset_index(drop=True)
+    base = next((c for c in BASE_UNIT_ID_COLUMNS if c in exploded.columns), None)
+    if base is not None:
+        part_n = exploded.groupby(base).cumcount().astype(str)
+        exploded["PARTID"] = exploded[base].astype(str) + "#" + part_n
+    else:
+        exploded["PARTID"] = exploded.index.astype(str)
+    return exploded
+
+
 def load_units(cfg: dict, unit_layer: str = "parcels") -> gpd.GeoDataFrame:
     """
     Load the chosen population-unit layer: 'parcels' (default) or 'blocks'.
     A thin dispatcher so callers can select the unit without knowing which loader
-    applies.
+    applies. Multipart units are exploded into single-part rows (config
+    ``explode_multipart_units``, default on) so each part selects/contests on its
+    own — see ``_explode_to_parts``.
     """
     if unit_layer == "parcels":
-        return load_population_units(cfg)
-    if unit_layer == "blocks":
-        return load_census_blocks(cfg)
-    raise ValueError(f"unknown unit_layer '{unit_layer}'; expected 'parcels' or 'blocks'")
+        units = load_population_units(cfg)
+    elif unit_layer == "blocks":
+        units = load_census_blocks(cfg)
+    else:
+        raise ValueError(
+            f"unknown unit_layer '{unit_layer}'; expected 'parcels' or 'blocks'")
+    if cfg["parameters"].get("explode_multipart_units", True):
+        units = _explode_to_parts(units)
+    return units
 
 
 def buffer_upstream_pipes(pipes: gpd.GeoDataFrame, pidx_list, buffer_ft: float):
@@ -195,7 +230,9 @@ def assign_population_units(pipes: gpd.GeoDataFrame,
 def competing_pipe_check(pipes: gpd.GeoDataFrame,
                          pidx_list,
                          served: gpd.GeoDataFrame,
-                         selection_radius_ft: float) -> gpd.GeoDataFrame:
+                         selection_radius_ft: float,
+                         footprint=None,
+                         ignore_pidx=None) -> gpd.GeoDataFrame:
     """
     Annotate served units with competing-pipe metrics (QC round 1 item 2).
 
@@ -224,24 +261,42 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
 
     Flag-only: the served set is returned annotated, never filtered. Whether
     flagged units should be excluded is a human call made after reviewing a batch
-    (decision_log 2026-07-02).
+    (decision_log 2026-07-02) — except cp_excl, an auto-exclude the consuming
+    pass applies (border unit, foreign pipe crosses, no in-trace pipe touches).
+
+    `footprint` (optional): the closed sewershed boundary polygon used to label
+    each unit border/inner (see cp_pos below). Omit it and every unit defaults to
+    "inner" (nothing auto-excludes).
+
+    `ignore_pidx` (optional): positional indices of pipes to exclude from the
+    foreign set — the small dangling networks (see graph_builder.small_dangling_pidx).
+    A parcel crossed only by an ignored stub is not contested.
 
     Added columns (DBF-safe names): cp_din (ft to nearest in-trace pipe),
     cp_dout (ft to nearest foreign pipe, NaN if none within radius), cp_fpipe
     (that pipe's FACILITYID), cp_fpidx (that pipe's positional index, -1 if none
     — a stable key when FACILITYID is null/duplicated), cp_cross (1 if a foreign
-    pipe intersects the unit), cp_flag ("" / "warning" / "review").
+    pipe intersects the unit), cp_pos ("border" / "inner" — position in the
+    served blob), cp_excl (1 = auto-exclude: a border unit no in-trace pipe
+    touches that a foreign pipe crosses), cp_flag ("" / "warning" / "review").
     """
     out = served.copy()
     if out.empty:
         for c, v in (("cp_din", np.nan), ("cp_dout", np.nan), ("cp_fpipe", ""),
-                     ("cp_fpidx", -1), ("cp_cross", 0), ("cp_flag", "")):
+                     ("cp_fpidx", -1), ("cp_cross", 0), ("cp_pos", ""),
+                     ("cp_excl", 0), ("cp_flag", "")):
             out[c] = v
         return out
 
     trace = set(pidx_list)
+    ignore = set(ignore_pidx or ())
     in_positions = sorted(trace)
-    foreign_positions = [i for i in range(len(pipes)) if i not in trace]
+    # Foreign = any main not in this trace, EXCEPT pipes flagged to ignore (small
+    # dangling networks — a 1-3 pipe stub crossing a parcel is noise, not a rival
+    # network). Dropping them here removes them from both cp_dout and cp_cross,
+    # since crossed is computed over foreign_positions below.
+    foreign_positions = [i for i in range(len(pipes))
+                         if i not in trace and i not in ignore]
     geoms = out[["geometry"]]
 
     def _nearest(positions, max_distance=None):
@@ -270,6 +325,34 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
                         how="inner", predicate="intersects").index.unique()
     out["cp_cross"] = out.index.isin(crossed).astype(int)
 
+    # Border vs inner position relative to the CLOSED sewershed footprint (the
+    # morphological-close boundary, passed as `footprint`). Closing is extensive
+    # so every served unit is contained in the footprint; a unit is INNER when it
+    # lies strictly inside and BORDER when its edge reaches the footprint
+    # perimeter. Judging against the closed footprint — not the raw parcel union
+    # — is essential: parcels don't tile (streets/ROW between them), so against
+    # the raw union nearly every unit reads as edge. The distinction is
+    # load-bearing for the auto-exclude below: a foreign pipe crossing a BORDER
+    # unit that no in-trace pipe touches means the unit is served by the
+    # neighbouring network; the same signal on an INNER unit is a connectivity
+    # gap (a dangling fragment to connect), not a unit to drop. Without a
+    # footprint, position is indeterminate — units default to "inner" so nothing
+    # auto-excludes (conservative).
+    if footprint is None or footprint.is_empty:
+        out["cp_pos"] = "inner"
+    else:
+        out["cp_pos"] = np.where(
+            out.geometry.within(footprint), "inner", "border")
+
+    # Auto-exclude (Grace's rule, 2026-07-06): a BORDER unit that no in-trace
+    # pipe intersects (cp_din > 0, strict — no tolerance) but a foreign pipe
+    # crosses (cp_cross == 1) belongs to the neighbouring main, not this trace.
+    # Flag-only elsewhere; a consuming pass drops cp_excl == 1 before the
+    # boundary is built.
+    out["cp_excl"] = ((out["cp_pos"] == "border")
+                      & (out["cp_din"] > 0)
+                      & (out["cp_cross"] == 1)).astype(int)
+
     review = (out["cp_cross"] == 1) | (out["cp_dout"] < out["cp_din"])
     # Intersect is prioritized over proximity: an in-trace pipe running through
     # the unit (cp_din == 0) is a decisive claim, so a foreign pipe that is
@@ -281,4 +364,112 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
     out["cp_flag"] = ""
     out.loc[contested, "cp_flag"] = "warning"
     out.loc[review, "cp_flag"] = "review"
+    return out
+
+
+def _densify_pipe_points(pipes, positions, step_ft):
+    """Points sampled every `step_ft` along each pipe at `positions`."""
+    pts = []
+    for i in positions:
+        g = pipes.iloc[i].geometry
+        if g is None or g.is_empty:
+            continue
+        n = max(int(g.length // step_ft) + 1, 2)
+        pts += [g.interpolate(t) for t in np.linspace(0, g.length, n)]
+    return pts
+
+
+def _equidistant_keep(unit, pipes, in_pos, for_pos, step_ft):
+    """The sub-geometry of `unit` closer to an in-trace pipe than to any foreign
+    pipe, via a Voronoi partition of densified pipe points. Returns the kept
+    geometry (possibly empty) — the equidistant line between the two pipe sets is
+    the cut."""
+    from scipy.spatial import cKDTree
+    from shapely import voronoi_polygons
+    from shapely.geometry import MultiPoint
+    in_pts = _densify_pipe_points(pipes, in_pos, step_ft)
+    for_pts = _densify_pipe_points(pipes, for_pos, step_ft)
+    if not in_pts or not for_pts:
+        # A pipe set sampled to no points (all geometries empty/None) — can't
+        # partition, so leave the unit whole rather than silently dropping it.
+        return unit
+    seeds = in_pts + for_pts
+    labels = np.array([0] * len(in_pts) + [1] * len(for_pts))
+    tree = cKDTree(np.array([(pt.x, pt.y) for pt in seeds]))
+    keep = []
+    for cell in voronoi_polygons(MultiPoint(seeds), extend_to=unit.envelope).geoms:
+        clip = cell.intersection(unit)
+        if clip.is_empty:
+            continue
+        rp = cell.representative_point()
+        _, idx = tree.query([rp.x, rp.y])
+        if labels[idx] == 0:
+            keep.append(clip)
+    return unary_union(keep) if keep else Polygon()
+
+
+def split_border_contested(served_ann: gpd.GeoDataFrame,
+                           pipes: gpd.GeoDataFrame,
+                           pidx_list,
+                           selection_radius_ft: float,
+                           cfg: dict,
+                           ignore_pidx=None) -> gpd.GeoDataFrame:
+    """
+    Equidistant-split the border units that BOTH an in-trace and a foreign pipe
+    cross, keeping only the portion closer to the in-trace network.
+
+    Split target = `cp_pos == "border"` AND `cp_cross == 1` AND `cp_din == 0`
+    (an in-trace pipe runs through the unit AND a foreign pipe crosses it — Grace's
+    "intersected by foreign AND trace pipes"). For each, the unit geometry is
+    replaced by the sub-area nearer an in-trace pipe than any foreign pipe (the
+    equidistant Voronoi cut); a unit whose kept piece is empty is dropped.
+
+    NOT split (pass through whole): inner units (decisively served / fragment
+    cases), and border units with `cp_din > 0` — a foreign pipe crosses but no
+    in-trace pipe does, which is the full-exclude case (`cp_excl`), handled before
+    this by dropping `cp_excl == 1`. Keeping the two mechanisms mutually exclusive
+    preserves both of Grace's validated rulings (196966 fully excluded, 137546
+    part 2 split 46/54).
+
+    The foreign set matches the competing check: any pipe not in the trace and not
+    in `ignore_pidx` (the small dangling stubs the contest ignores). Config:
+    `split_near_radius_ft` (pipes within this of the unit are considered, default
+    100) and `split_densify_step_ft` (point spacing along pipes, default 3).
+
+    Adds `cp_keep` (fraction of the original unit area retained; 1.0 for units not
+    split). Returns the adjusted served set (fewer rows if any split to empty).
+    """
+    params = cfg["parameters"]
+    if not params.get("split_border_contested", True) or served_ann.empty:
+        served_ann = served_ann.copy()
+        served_ann["cp_keep"] = 1.0
+        return served_ann
+
+    near_ft = params.get("split_near_radius_ft", 100.0)
+    step_ft = params.get("split_densify_step_ft", 3.0)
+    trace = set(pidx_list)
+    ignore = set(ignore_pidx or ())
+
+    target = ((served_ann["cp_pos"] == "border")
+              & (served_ann["cp_cross"] == 1)
+              & (served_ann["cp_din"] == 0))
+    out = served_ann.copy()
+    out["cp_keep"] = 1.0
+    drop_idx = []
+    for idx in out.index[target]:
+        unit = out.at[idx, "geometry"]
+        d = pipes.geometry.distance(unit)
+        near = set(np.where(d.values <= near_ft)[0])
+        in_pos = [i for i in near if i in trace]
+        for_pos = [i for i in near if i not in trace and i not in ignore]
+        if not in_pos or not for_pos:
+            continue                      # can't split — leave whole
+        kept = _equidistant_keep(unit, pipes, in_pos, for_pos, step_ft)
+        if kept.is_empty or kept.area <= 0:
+            drop_idx.append(idx)
+            continue
+        out.at[idx, "geometry"] = kept
+        out.at[idx, "cp_keep"] = kept.area / unit.area
+    if drop_idx:
+        out = out.drop(index=drop_idx)
     return out

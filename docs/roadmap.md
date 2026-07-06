@@ -157,6 +157,14 @@ See decision_log 2026-07-02 and `docs/SewershedDelineation_checkin_2026-07-01.ht
 fresh sweep/LOO — the defensible generalization number is still the earlier LOO ~0.78. **Re-sweep +
 LOO against the edited truth is pending** if a quotable tuned number is needed.
 
+**Re-check 2026-07-06:** after the multipart **explode** + **equidistant split** of border-contested
+parcels (+ dangling-≤3 ignore, 33250 delete, and the **1.02+CB1 truth merge** — 1.02 now 0.68+, no
+longer the weak site), single-config score is **median IoU 0.8135 → 0.8538 after exclude+split,
+24/24 sites ≥ 0.5** (first run with every site ≥ 0.5). Still single-config, not a fresh sweep/LOO.
+The split is geometry-based (not truth-validated) so it is NOT monotonic — 4 sites dipped slightly
+(20.29 0.76→0.74 with 5 splits, 20.20/3.01/18.01 by ≤0.01); net median up. See decision_log
+2026-07-06. **Re-sweep + LOO against the 07062026 truth still pending** for a quotable tuned number.
+
 Phases 1–6 dissolve served **parcels** into a polygon (median IoU 0.64 vs the hand-drawn truth set).
 Two problems drive this phase, plus two add-ons:
 

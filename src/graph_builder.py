@@ -207,6 +207,26 @@ def _num(val):
     return f
 
 
+def small_dangling_pidx(G: nx.MultiDiGraph, max_pipes: int) -> set:
+    """Return the pidx of every pipe in an isolated weak component of `max_pipes`
+    or fewer edges — the small dangling networks (1-3 pipe stubs) that a caller
+    may want to ignore. The pipes stay in the graph and are still traced; this
+    just identifies them so the competing-pipe check can drop them from the
+    foreign set (a 2-3 pipe fragment crossing a parcel is noise, not a rival
+    network). `max_pipes` counts edges, so max_pipes=3 catches 1-, 2-, and
+    3-pipe components.
+    """
+    ignore = set()
+    for comp in nx.weakly_connected_components(G):
+        sub = G.subgraph(comp)
+        if sub.number_of_edges() <= max_pipes:
+            for _, _, d in sub.edges(data=True):
+                p = d.get("pidx")
+                if p is not None:
+                    ignore.add(int(p))
+    return ignore
+
+
 # ---------------------------------------------------------------------------
 # Validation / reporting
 # ---------------------------------------------------------------------------

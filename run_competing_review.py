@@ -30,6 +30,7 @@ Run:  python run_competing_review.py --config config.yaml
 """
 
 import argparse
+import statistics
 import sys
 from pathlib import Path
 
@@ -38,18 +39,21 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from config import load_config                              # noqa: E402
-from graph_builder import load_graph_from_config, build_node_index  # noqa: E402
+from graph_builder import (                                  # noqa: E402
+    load_graph_from_config, build_node_index, small_dangling_pidx,
+)
 from traversal import trace_manhole, TargetResolutionError  # noqa: E402
 from population_join import (                               # noqa: E402
     load_units, assign_population_units, competing_pipe_check,
+    split_border_contested,
 )
 from polygon_output import CP_SEVERITY, unit_id_column      # noqa: E402
 from boundary import build_boundary                         # noqa: E402
 from validation import load_truth, iou                      # noqa: E402
 
 CSV_COLUMNS = [
-    "tract", "manhole", "parcel", "severity", "cp_din", "cp_dout",
-    "cp_fpipe", "cp_owner", "cp_cross", "x", "y", "decision", "comment",
+    "tract", "manhole", "parcel", "severity", "cp_pos", "cp_din", "cp_dout",
+    "cp_fpipe", "cp_owner", "cp_cross", "cp_keep", "x", "y", "decision", "comment",
 ]
 
 
@@ -81,6 +85,15 @@ def main():
     G, pipes = load_graph_from_config(cfg)
     index = build_node_index(G)
     parcels = load_units(cfg, "parcels")
+
+    # Small dangling networks (isolated ≤N-pipe stubs) are ignored by the
+    # competing check — a 2-3 pipe fragment crossing a parcel is noise, not a
+    # rival network. Computed once; the pipes stay in the graph and traces.
+    ignore_pidx = small_dangling_pidx(
+        G, params.get("competing_ignore_dangling_max_pipes", 3))
+    print(f"Ignoring {len(ignore_pidx)} pipes in dangling networks "
+          f"(<={params.get('competing_ignore_dangling_max_pipes', 3)} pipes) "
+          "for the competing check")
 
     sites, points_xy = load_truth(cfg)
     tract_of = load_tract_labels(cfg)
@@ -122,8 +135,10 @@ def main():
         return "; ".join(sorted(pidx_owner.get(int(fpidx), set()) - {own_tract}))
 
     csv_rows, parcel_rows, boundary_rows, truth_rows = [], [], [], []
+    iou_pairs = []   # (score_before, score_after exclude+split) per delineated site
+    split_total = 0
     print(f"\n{'tract':<16}{'manhole':<9}{'served':>7}{'contest':>8}"
-          f"{'review':>7}{'warn':>6}{'iou':>7}")
+          f"{'review':>7}{'warn':>6}{'excl':>6}{'splt':>5}{'iou0':>7}{'iou':>7}")
     for sid in sorted(sites):
         tract = tract_of.get(sid, "")
         truth = sites[sid]
@@ -137,52 +152,109 @@ def main():
             continue
 
         pop = assign_population_units(pipes, res.pidx_list, parcels, sel_r)
-        ann = competing_pipe_check(pipes, res.pidx_list, pop.served, sel_r)
+
+        def _score(units):
+            u = None if units.empty else units.geometry.union_all()
+            g = build_boundary(units, method, served_union=u, close_ft=close_ft)
+            return g, round(iou(g, truth), 4)
+
+        # Full footprint first — it both scores the pre-exclude IoU (iou0) and
+        # defines the closed boundary the border/inner label is judged against.
+        full_geom, score0 = _score(pop.served)
+        ann = competing_pipe_check(pipes, res.pidx_list, pop.served, sel_r,
+                                   footprint=full_geom, ignore_pidx=ignore_pidx)
         id_col = unit_id_column(ann)
 
-        served_union = None if pop.served.empty else pop.served.geometry.union_all()
-        geom = build_boundary(pop.served, method,
-                              served_union=served_union, close_ft=close_ft)
-        score = round(iou(geom, truth), 4)
+        # Drop the auto-excluded (cp_excl) border+din>0 units, then equidistant-
+        # split the border+din==0 units (keep only the in-trace-closer piece),
+        # rebuild the boundary, re-score.
+        kept = ann[ann["cp_excl"] == 0]
+        split = split_border_contested(kept, pipes, res.pidx_list, sel_r, cfg,
+                                       ignore_pidx=ignore_pidx)
+        geom, score = _score(split)
+        n_excl = int((ann["cp_excl"] == 1).sum())
         if geom is not None and not geom.is_empty:
             boundary_rows.append({"SiteID": sid, "tract": tract, "iou": score,
                                   "method": method, "sel_r": sel_r,
                                   "close_ft": close_ft, "geometry": geom})
 
+        # Which units the splitter touched: kept-fraction (0.0 = split to empty
+        # and dropped). Keyed by the unit id so we can flag them in the row loop
+        # and count them (split-to-empty units are dropped from `split`, so
+        # counting `cp_keep < 1` alone would miss them).
+        split_keep = {}
+        if id_col and "cp_keep" in split.columns:
+            for uid, kv in zip(split[id_col].astype(str), split["cp_keep"]):
+                if kv < 1.0:
+                    split_keep[uid] = float(kv)
+            targ = kept[(kept["cp_pos"] == "border") & (kept["cp_cross"] == 1)
+                        & (kept["cp_din"] == 0)]
+            live = set(split[id_col].astype(str))
+            for uid in targ[id_col].astype(str):
+                if uid not in live:              # split to empty -> fully dropped
+                    split_keep[uid] = 0.0
+        n_split = len(split_keep)
+
+        iou_pairs.append((score0, score))
+        split_total += n_split
         hit = ann[ann["cp_flag"] != ""]
         n_rev = int((hit["cp_flag"] == "review").sum())
         print(f"{tract:<16}{sid:<9}{len(ann):>7}{len(hit):>8}"
-              f"{n_rev:>7}{len(hit) - n_rev:>6}{score:>7.2f}")
+              f"{n_rev:>7}{len(hit) - n_rev:>6}{n_excl:>6}{n_split:>5}"
+              f"{score0:>7.2f}{score:>7.2f}")
 
         for idx, r in hit.iterrows():
             c = r.geometry.representative_point()
+            pid = str(r[id_col]) if id_col else str(idx)
+            auto = int(r["cp_excl"]) == 1
+            was_split = pid in split_keep
+            keepfrac = split_keep.get(pid, 0.0 if auto else 1.0)
+            if auto:
+                decision, comment = "exclude", ("auto: border parcel, foreign pipe "
+                                                "crosses, no in-trace pipe touches")
+            elif was_split:
+                decision = "split"
+                comment = (f"auto: equidistant split, kept {keepfrac*100:.0f}% "
+                           "(in-trace side)")
+            else:
+                decision, comment = "", ""
             rec = {
                 "tract": tract,
                 "manhole": sid,
-                "parcel": str(r[id_col]) if id_col else str(idx),
+                "parcel": pid,
                 "severity": CP_SEVERITY[r["cp_flag"]],
+                "cp_pos": str(r["cp_pos"]),
                 "cp_din": round(float(r["cp_din"]), 1),
                 "cp_dout": (round(float(r["cp_dout"]), 1)
                             if pd.notna(r["cp_dout"]) else ""),
                 "cp_fpipe": str(r["cp_fpipe"]),
                 "cp_owner": owner_of(r.get("cp_fpidx"), tract),
                 "cp_cross": int(r["cp_cross"]),
+                "cp_keep": round(keepfrac, 2),
                 "x": round(c.x, 2),
                 "y": round(c.y, 2),
-                "decision": "",
-                "comment": "",
+                # Auto decisions are pre-filled so Grace audits/overrides rather
+                # than re-deciding each; blank rows are still hers to fill.
+                "decision": decision,
+                "comment": comment,
             }
             csv_rows.append(rec)
-            parcel_rows.append({**{k: v for k, v in rec.items()
-                                   if k not in ("decision", "comment")},
-                                "geometry": r.geometry})
+            # The spatial layer holds only the OPEN review parcels. Already-decided
+            # units — auto-excluded OR equidistant-split — stay in the CSV (audit
+            # record) but drop from contested_parcels so the GIS layer shows just
+            # what Grace still needs to look at (per Grace, 2026-07-06).
+            if not auto and not was_split:
+                parcel_rows.append({**{k: v for k, v in rec.items()
+                                       if k not in ("decision", "comment")},
+                                    "geometry": r.geometry})
 
     # CSV — the review worksheet (decision: exclude | keep | reassign).
     pd.DataFrame(csv_rows, columns=CSV_COLUMNS).to_csv(
         csv_path, index=False, encoding="utf-8")
 
-    # GeoPackage — same parcels spatially, plus context layers. Optional layers
-    # are guarded: an all-clean run must not crash after the CSV is written.
+    # GeoPackage — the OPEN review parcels spatially (auto-excluded units are in
+    # the CSV only), plus context layers. Optional layers are guarded: an
+    # all-clean run must not crash after the CSV is written.
     if parcel_rows:
         gpd.GeoDataFrame(parcel_rows, crs=crs).to_file(
             gpkg_path, layer="contested_parcels", driver="GPKG")
@@ -193,8 +265,20 @@ def main():
         gpkg_path, layer="truth", driver="GPKG")
 
     n_rev = sum(r["severity"] == "review_required" for r in csv_rows)
+    n_auto = sum(r["decision"] == "exclude" for r in csv_rows)
     print(f"\nContested parcels: {len(csv_rows)} "
           f"({n_rev} review_required, {len(csv_rows) - n_rev} warning)")
+    print(f"Auto-excluded (border + foreign-cross + no trace touch): {n_auto} "
+          "parcels, decision pre-filled 'exclude' - in CSV only, dropped from "
+          "contested_parcels layer")
+    print(f"Equidistant-split (border + both pipes cross, cp_din==0): "
+          f"{split_total} units kept partial")
+    if iou_pairs:
+        med0 = statistics.median(s0 for s0, _ in iou_pairs)
+        med1 = statistics.median(s1 for _, s1 in iou_pairs)
+        ge0 = sum(s1 >= 0.5 for _, s1 in iou_pairs)
+        print(f"Median IoU: {med0:.4f} before -> {med1:.4f} after exclude+split "
+              f"({ge0}/{len(iou_pairs)} sites >= 0.5)")
     for s in statuses:
         print(f"  [skipped delineation] {s['tract']} {s['manhole']}: {s['status']}")
     print(f"Wrote: {csv_path}")

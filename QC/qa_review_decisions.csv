@@ -64,3 +64,4 @@ disconnected_component,component_28,2058242.22,827010.56,resolved,,,agree with a
 ,12071,,,extend,,20198,QC_v2: extend to MH 20198
 ,50418,,,extend,,53623,QC_v2: extend to MH 53623
 ,64653,,,extend,,"2022049.6,822710.45",QC_v2: connect to pipe 63249 endpoint
+,33250,,,delete,,,"overflow pipe - pretend it does not exist (2026-07-06)"

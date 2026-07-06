@@ -17,7 +17,7 @@ inputs:
 
   # Validation set (lives in the sibling CommunityWastewaterDashboard project).
   # Only read by src/validation.py --sweep; not required for a normal run.
-  validation_truth_polygons: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Polygons_05212026.shp"
+  validation_truth_polygons: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Polygons_07062026.shp"
   validation_points: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Locations_05212026.shp"
 
   # Human QA review decisions (see src/qa_review.py). Rows with decision=snap
@@ -84,6 +84,27 @@ parameters:
   # network has several thousand-node components), not errors. Matches the
   # < 50 node criterion in check_sample_sites.py.
   disconnected_component_max_nodes: 50
+
+  # Competing-pipe check: ignore foreign pipes that live in an isolated weak
+  # component of this many pipes or fewer (a small dangling network — a 1-3 pipe
+  # stub crossing a parcel is noise, not a rival network). The pipes stay in the
+  # graph and are still traced; they're only dropped from the competing foreign
+  # set. Counts edges, so 3 catches 1-, 2-, and 3-pipe components.
+  competing_ignore_dangling_max_pipes: 3
+
+  # Explode multipart population units into single-part rows at load, so each
+  # part is selected/contested on its own (one part touching a foreign main no
+  # longer flags the whole record; parts beyond the selection radius drop out).
+  explode_multipart_units: true
+
+  # Equidistant split of border units that BOTH an in-trace and a foreign pipe
+  # cross (cp_pos=border, cp_cross=1, cp_din=0): keep only the sub-area closer to
+  # the in-trace network (Voronoi cut along the equidistant line). Border units a
+  # foreign pipe crosses but no in-trace pipe does (cp_din>0) are fully excluded
+  # instead (cp_excl); inner units are never split.
+  split_border_contested: true
+  split_near_radius_ft: 100.0     # pipes within this of a unit feed its split
+  split_densify_step_ft: 3.0      # point spacing along pipes for the Voronoi cut
 
   # Which flag types get individual PDF map pages. All flags always appear in the
   # CSV; this only controls the maps. Bulk completeness issues (isolated_manhole,
