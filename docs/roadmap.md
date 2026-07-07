@@ -219,6 +219,57 @@ Data: census blocks supplied at `data/the city Blocks/tl_2021_37_tabblock20.shp`
 
 ---
 
+### Phase 9 — JOSS-ready deliverable (target chosen 2026-07-07)
+
+**Goal (decision_log 2026-07-07):** a clean, documented, DOI'd GitHub repo + a JOSS software note
++ a short rich-HTML writeup. NOT a multi-city journal paper. The citable contribution is the
+*open, validated* pipeline (IoU 0.79–0.86 vs expert manual delineation, LOO-CV, boundary-method
+sweep), not the tracing. Multi-city generalization = future work under this route.
+
+**Fan-out (tracks by dependency; critical path C → B → E):**
+
+**Track A — Repo hygiene (parallel, start anytime).**
+- `LICENSE` — **MIT** (default; Grace to confirm — OSI license is a JOSS requirement).
+- `pyproject.toml` / `requirements.txt` with pinned deps (geopandas, networkx, shapely>=2, scipy,
+  matplotlib, contextily, pyyaml, openpyxl). Roadmap P3-8.
+- `README.md` — overview, install, quickstart run-order, one worked example. Roadmap P4-13.
+- `data/README.md` — provenance/CRS/fields per input. Roadmap P3-11.
+- `.gitignore` — stray `wb.html`, `*.lock`, `*.bak` (e.g. the leftover
+  `QC/competing_pipe_review_pre_rerun_20260706.csv.bak`). Roadmap P4-12.
+
+**Track F — Tests + CI (parallel; feeds A's CI).**
+- Synthetic 5-pipe regression suite: snap edge cases, false headwater, self-loop, 2-node SCC,
+  empty trace, boundary methods on toy geometry. Roadmap P3-9.
+- GitHub Actions running `pytest` on push.
+
+**Track C — Phase 7 unified `run.py` (the spine).** See Phase 7 above + P2 items 4/6:
+config → QA → graph → trace → membership → boundary → flags; single + multi-site; extract one
+shared target-resolution fn; fix `qc_flags.gpkg` layer clobbering. Prereq for the JOSS example.
+
+**Track B — Runnable example (gated by C).**
+- **Synthetic toy network** (Grace's call 2026-07-07): hand-built ~10–20-pipe fake sewer + parcels,
+  committed, deterministic — sidesteps the uncommitted/redistribution-restricted the city data.
+- One-command demo: `python run.py --config examples/toy/config.yaml` → sewershed polygon.
+
+**Track D — Validation numbers + writeup (parallel; feeds E).**
+- Re-sweep + LOO against `Sampling_Polygons_07062026.shp` for a quotable *tuned* IoU (current 0.86
+  is single-config). Long-pending.
+- Rich-HTML writeup: method, validation, boundary-method sweep, results, figures.
+- Honest scoping paragraphs: **truth = agreement with expert manual delineation, not ground-truth
+  accuracy** (state who drew the polygons); **gravity-only** — force-main-fed subbasins undercounted
+  (the FAO/meter case is the live example).
+
+**Track E — JOSS artifacts (final; needs A/B/C/D).**
+- `paper/paper.md` (~600 words: statement of need) + `paper.bib`.
+- Zenodo integration → archived **DOI** on tagged release.
+- Community docs: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates.
+- Author list / affiliations / ORCID.
+
+**Status 2026-07-07:** planned, no tracks spawned yet — Grace drives execution. Open confirms:
+license (MIT?), author list.
+
+---
+
 ## Action items from end-to-end review (2026-07-01)
 
 Ranked by importance. Check off / annotate as resolved; move anything that becomes a

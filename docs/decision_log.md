@@ -1154,3 +1154,67 @@ that file / full suite passing.
 Grace can override any in the CSV decision column. Buffer radius and single-vs-
 aggregate are the levers if a site over-trims. Demographic apportionment for the
 excluded/split parcels remains the deferred downstream cost.
+
+---
+
+## 2026-07-07 — Meter service-area estimation for RDII monitoring basins
+
+**Task (Grace):** estimate the true contributing area for 12 flow meters
+(meter → estimated manhole FACILITYID), produce a spreadsheet + pipe trace per
+meter, deliver to RDII.
+
+**Approach:** new one-off runner `run_meter_service_areas.py` reuses the
+production path (trace → parcel membership → morph_close boundary) for each
+meter's manhole; area reported in acres. No hand-drawn truth exists for these
+meters, so validation is the manhole `MONITORBAS` label: **basin_capture_%**
+(fraction of the expected basin's manholes the upstream trace reached) and the
+dominant traced basin. Existing `MonitoringBasins.shp` polygon area carried as a
+reference ruler (`area_vs_existing`). Two meters with no manhole (CBO, NC2R-2A)
+resolved by an **outlet search** — trace the 12 deepest (lowest-invert) manholes
+in the basin, pick max capture; tagged CANDIDATE, needs Grace's confirm.
+
+**Result (output/meter_service_areas/, copied to
+RDII/results/sewershed_service_areas/ — csv/xlsx/gpkg):**
+- **High confidence (capture ≥98%, area within ~3% of existing):** GC1, TF5,
+  HRO, DBO, HVO. Grace's mid-session manhole corrections (GC1 4469→21660, HRO
+  →23384, DBO →21350, HVO →04796, NH2 →04609) fixed the label mismatches.
+- **Good:** LCO (86%, 0.77× existing).
+- **Trunk / multi-basin (area ≫ local basin):** TF2 (2.8×), NH1 (1.7×), NH2
+  (20.9× — 17,419 ac, dominant traced label TF2 not NH2). Not errors — these
+  meters sit on trunks and measure many upstream basins. Open question for
+  Grace: report local basin vs full upstream catchment.
+- **LOW — recheck:** FAO/WW104 (capture 24.5%, 0.22× existing — manhole is
+  mid-basin or basin is force-main fed); NC2R-2A candidate mh 11562 (capture
+  15.3%, outlet search landed in NCO). Needs a real NC2R manhole.
+
+**Caveat baked into the sheet:** gravity-only (no force-main layer) — subbasins
+reaching a meter via a lift station are dropped; low basin_capture_% is the flag.
+
+**Data safety:** `MonitoringBasins.shp` read-only (dissolve for reference areas);
+not modified. It carried a 2026-07-06 11:36 mtime, but integrity-checked clean
+(47 features, 0 null/empty, areas track independent traces within a few %) —
+Grace owns that file and is fixing it separately.
+
+---
+
+## 2026-07-07 — Publication strategy: JOSS + documented repo + writeup (not a journal grind)
+
+**Decision (Grace):** aim the pipeline at a **clean, documented, DOI'd GitHub
+repo + a JOSS software note + a short writeup** — NOT a multi-city journal paper.
+
+**Rationale:** the tracing itself isn't novel (utility-network tracing is
+standard GIS; WBE sewershed delineation is a crowded post-COVID space). The
+citable contribution is the *open, validated* pipeline (IoU 0.79–0.86 vs expert
+manual delineation, LOO-CV, empirical boundary-method sweep). Weighed against
+Grace's stated goals (implementation-engineer / technical-PM / water-tech; avoid
+pure academia): a well-documented repo + JOSS note is a stronger portfolio asset
+and far lower effort than a multi-city *Environmental Modelling & Software* paper.
+The WBE demographic-representativeness application paper stays a *possible*
+downstream deliverable if RDII wants the research output (it needs the deferred
+demographic join anyway), but is explicitly NOT the near-term target.
+
+**Known gaps this route still must address:** (1) gravity-only / force-main
+handling scoped honestly; (2) truth-polygon provenance stated (agreement with
+expert, not ground-truth accuracy); (3) a runnable example that doesn't require
+the uncommitted the city data. Multi-city generalization is downgraded from
+"required" to "future work" under this route.
