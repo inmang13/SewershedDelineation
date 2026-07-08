@@ -265,6 +265,8 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
                          selection_radius_ft: float,
                          border_ring_ft: float = 75.0,
                          border_min_expose: float = 0.10,
+                         border_min_cover_frac: float = 0.0,
+                         border_min_cover_area_ft2: float = 0.0,
                          ignore_pidx=None) -> gpd.GeoDataFrame:
     """
     Annotate served units with competing-pipe metrics (QC round 1 item 2).
@@ -381,6 +383,33 @@ def competing_pipe_check(pipes: gpd.GeoDataFrame,
     out["cp_excl"] = ((out["cp_pos"] == "border")
                       & (out["cp_din"] > 0)
                       & (out["cp_cross"] == 1)).astype(int)
+
+    # Low-coverage border gate (Grace's rule, 2026-07-08): a BORDER unit pulled
+    # in by a nick — where the in-trace selection buffer barely clips one corner
+    # — e.g. a 386-ac park parcel (143319) clipped 0.011 ac (0.003%) rides the
+    # whole parcel in. A nick is small in BOTH senses, so both must hold to
+    # exclude: fraction < border_min_cover_frac AND absolute overlap <
+    # border_min_cover_area_ft2. The absolute floor is what stops the fraction
+    # test from wrongly dropping a large RURAL parcel legitimately edged by a
+    # pipe (26532: 38-ac parcels at ~1.3% frac but ~0.5 ac real contact) — those
+    # clear the area floor and stay. BORDER-only so an interior parcel a pipe
+    # merely skirts is never dropped. cp_cover (fraction) + cp_covar (overlap
+    # ft²) recorded for review; cp_excl absorbs failures so the existing
+    # consuming pass drops them with the rest.
+    out["cp_cover"] = 1.0
+    out["cp_covar"] = np.nan
+    if border_min_cover_frac > 0 and in_positions:
+        buf = pipes.iloc[in_positions].geometry.buffer(
+            selection_radius_ft).union_all()
+        border = out["cp_pos"] == "border"
+        areas = out.geometry.area
+        overlap = out.geometry.intersection(buf).area
+        out.loc[border, "cp_cover"] = (overlap / areas.where(areas > 0, 1.0))[border]
+        out.loc[border, "cp_covar"] = overlap[border]
+        lowcov = (border
+                  & (out["cp_cover"] < border_min_cover_frac)
+                  & (out["cp_covar"] < border_min_cover_area_ft2))
+        out.loc[lowcov, "cp_excl"] = 1
 
     review = (out["cp_cross"] == 1) | (out["cp_dout"] < out["cp_din"])
     # Intersect is prioritized over proximity: an in-trace pipe running through

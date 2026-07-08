@@ -59,9 +59,13 @@ parameters:
   competing_pipe_check: true
 
   # Boundary construction (Phase 8). `boundary_method` picks how the served units
-  # become a seamless polygon; morph_close is the tuned primary method.
-  boundary_method: "morph_close"    # morph_close | blocks_dissolve | hybrid | concave
-  close_radius_ft: 150.0            # morphological close radius (buffer +r then -r); re-swept 2026-07-02 vs corrected truth (was 100)
+  # become a seamless polygon; delaunay is the primary method (2026-07-07 —
+  # straight parcel-line edges, bridges bays morph_close can't; morph_close was
+  # the previous winner and stays available).
+  boundary_method: "delaunay"       # morph_close | blocks_dissolve | hybrid | concave | block_fill | delaunay
+  delaunay_max_edge_ft: 500.0       # max Delaunay bridge edge (ft); delaunay only. 500 beat 750/1000/1500 pre-rules AND post-rules (0.8768 full-rules median, 2026-07-07)
+  bridge_parts_max_gap_ft: 800.0    # seam-align post-pass: close radius for stitching a site's disjoint parts; fills the full corridor for pinch gaps up to ~this wide (Tract 1.02 highway = 717 ft). Between-parts only. 0 disables.
+  close_radius_ft: 150.0            # morphological close radius (buffer +r then -r); morph_close/hybrid only
   concave_ratio: 0.3               # shapely.concave_hull ratio knob (0=tight, 1=convex); concave method only
 
   large_catchment_threshold_acres: 500.0
@@ -113,6 +117,13 @@ parameters:
   # would dilate the boundary past the real edge and mislabel edge units inner.
   border_ring_ft: 75.0            # ring width; bridges typical street + setback
   border_min_expose: 0.10         # >10% of ring uncovered -> border
+  # Nick gate: drop a BORDER parcel only if it barely touches the in-trace
+  # selection buffer in BOTH senses — fraction < border_min_cover_frac AND
+  # absolute overlap < border_min_cover_area_ft2. The area floor keeps big rural
+  # parcels legitimately edged by a pipe (low frac, real contact) from being
+  # dropped; the pair together isolate corner-nicks like the 143319 park.
+  border_min_cover_frac: 0.02     # <2% of parcel area inside buffer AND ...
+  border_min_cover_area_ft2: 2178.0  # ... <0.05 ac (2178 ft²) absolute overlap -> nick. 0 disables gate.
 
   # Buffered-pipe area assignment for the still-open contested units (those not
   # resolved by split/exclude): buffer each competing pipe and assign the unit to

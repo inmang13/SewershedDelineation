@@ -1218,3 +1218,117 @@ handling scoped honestly; (2) truth-polygon provenance stated (agreement with
 expert, not ground-truth accuracy); (3) a runnable example that doesn't require
 the uncommitted the city data. Multi-city generalization is downgraded from
 "required" to "future work" under this route.
+
+---
+
+## 2026-07-07 — Boundary method: delaunay gap-fill replaces morph_close (median IoU 0.877); seam-align post-pass; block-snap rejected
+
+**Decision (Grace + sweep evidence):** `boundary_method: delaunay` with
+`delaunay_max_edge_ft: 500` — served parcels + Delaunay gap-triangles whose
+longest edge <= 500 ft, unioned, holes filled. Straight parcel-line edges
+(fixes Grace's "weird rounded edges" complaint against buffer arcs), bridges
+streets/bays without dilation. **Full-rules median IoU 0.8768 (was 0.8622
+with morph_close), 24/24 sites >= 0.5**; seam align nudges it to 0.8771.
+Truth = `Sampling_Polygons` with Grace's 2026-07-07 edits (18.02/1.02 area
+changed mid-session; older score tables not cross-comparable).
+
+**Edge-length choice:** Grace initially picked 1000 (site 17506/Tract 18.02
+jumps 0.69 -> 0.78; its bays need ~1000-ft bridges). Global data reversed it:
+pre-rules 500/750/1000 = 0.8248/0.8238/0.8194, and post-rules the gap widens
+(500 = 0.8768 vs 1000 = 0.8428) — after exclude/split trims foreign parcels,
+long bridges re-span exactly the gaps the exclusions created. LOO on the
+pre-rules grid: 0.8176 held-out vs 0.8248 in-sample (optimism +0.007), folds
+split 11/12 between 500/750 — plateau, choice robust. 17506 remains the weak
+site (0.69); its residual gap is membership/trace, not bridging.
+
+**Candidates tested and rejected on the way** (all vs truth, single-config):
+- **snap_to_blocks** (replace boundary with >=frac-covered census blocks):
+  best threshold 0.5 lost ~0.06 median; site 26532 collapsed 0.94 -> 0.46
+  (blocks too coarse vs parcel-drawn truth). Kept in boundary.py as the
+  Phase-10 "exact block sums" option, not the boundary.
+- **block_fill** (Grace's idea: parcels + >=50%-covered blocks, no dilation):
+  best on hole-heavy 17506 (0.79) but fragmented (18 parts) and lost globally
+  (median 0.7777 vs 0.8135). Kept as method `block_fill`.
+- **mitre joins / trim_to_parcels on morph_close:** fixed the arcs, IoU-neutral
+  (-0.008), superseded by delaunay before shipping.
+- **concave_hull / convex_hull / gap-surround:** 0.74 / 0.66 / degenerated to
+  convex hull (boundary-length surround test flawed — fringe piece is
+  parcel-edge-dominated by length).
+
+**Cross-site post-passes added (`src/boundary.py`):** `align_seams` (snap
+vertices within 50 ft of already-processed neighbours — shared borders
+coincide; IoU delta ~0.001) and `enforce_containment` (pair overlapping >=80%
+of the smaller polygon -> exact nesting; 3.01 inside 1.02 = 0.0 sq ft leak).
+Runner `run_seam_align.py` -> `output/sewershed_final.gpkg` (the production
+polygons). Overlap between adjacent catchments is legitimate per Grace
+(nested basins); only border alignment was the ask.
+
+**Plumbing:** config.py now validates `boundary_method` against
+`boundary.VALID_METHODS` (was a stale duplicate list — P4-14's disease);
+`delaunay_max_edge_ft` threaded through polygon_output + run_competing_review;
+validation sweep supports `--methods delaunay` (param2 via `--close` grid).
+New runners: `run_seam_align.py`, `run_boundary_steps.py` (per-step debug
+layers), `run_hull_candidates.py`, `run_snap_rescore.py`, `run_edge_rescore.py`,
+`run_blockfill_rescore.py` (the last three are one-shot experiment harnesses —
+candidates for deletion once this entry records their results). GPKG layer
+names sanitized (ArcGIS rejects dots).
+
+**Honest denominators for quoting:** "median IoU 0.88 (24 gravity-tractable
+sites, full membership rules, in-sample)"; the LOO-validated number is the
+pre-rules boundary choice at 0.82. A LOO harness over the full-rules pipeline
+does not exist yet.
+
+---
+
+## 2026-07-08 — Nick gate (low-coverage border parcels) + full-corridor part bridging; full-rules median IoU 0.874
+
+**Context:** Grace spotted the 386-ac park parcel 143319 wrongly served by
+03442 (Tract 20.20). Root cause = intersect-any membership: the in-trace
+selection buffer clipped one corner by 0.011 ac (0.003% of the parcel) and the
+whole 386-ac part rode in. Not contested (no foreign main nearby) so the
+competing-pipe rules never touched it. Truth includes only 8.6 ac of it.
+
+**Decision 1 — nick gate (`competing_pipe_check`, flag-only + consumed):**
+drop a BORDER served unit only when its overlap with the in-trace selection
+buffer is small in BOTH senses: fraction `< border_min_cover_frac` (0.02) AND
+absolute area `< border_min_cover_area_ft2` (2178 ft² = 0.05 ac). New columns
+`cp_cover` (fraction) and `cp_covar` (overlap ft²); the low-coverage units fold
+into `cp_excl`, which the existing consuming pass already drops.
+
+Why BOTH thresholds: Grace asked for fraction-based, border-only. Pure fraction
+at 0.02 collapsed a legitimate site — **26532 (Tract 18.01) fell 0.94 -> 0.65**
+because it is a rural large-parcel catchment where a pipe runs along the *edge*
+of 30-40 ac parcels (frac ~1.3% but ~0.5 ac of real contact). The absolute-area
+floor is the actual "nick" signal — a corner graze is tiny in ft² regardless of
+parcel size — so it spares those parcels (0.52 ac contact >> 0.05 ac floor)
+while still catching 143319 (0.011 ac) and true nicks like 26532's own 169157
+(0.003 ac). With the AND gate 26532 recovered to 0.87 and the gate is net
+positive overall.
+
+**Decision 2 — full-corridor part bridging (`boundary.bridge_parts`, seam-align
+post-pass):** stitch a site's disjoint parts across a wide gap (Tract 1.02 split
+by a highway, 717 ft nearest approach). First cut used a Delaunay strip -> a
+thin neck; Grace wanted the corridor filled. Final method: morphological close
+at radius = `bridge_parts_max_gap_ft` (800), then keep ONLY the fill pieces that
+abut >= 2 original parts (discards the outer rounding a plain close adds; those
+touch one part). Radius == gap width, NOT half: inter-part gaps taper to a
+pinch, and closing a pinch of width w needs r ~= w (a w/2 close is erased by the
+erosion step — verified: r=400 left 1.02 as 2 parts, r>=500 merged it). Applied
+in `run_seam_align.py` before align/containment; config
+`bridge_parts_max_gap_ft`. 1.02 now one part; median unchanged (corridor is a
+small area add).
+
+**Result:** full-rules median IoU **0.8739**, 24/24 sites >= 0.5 (was 0.8594
+with the broken pure-fraction gate). 1.02/20.29 border overlap down to 19 ac
+(0.3%) — effectively an aligned seam. Truth = Grace's 2026-07-08 edits; not
+cross-comparable to the 0.877 from 2026-07-07 (truth changed).
+
+**Plumbing:** `border_min_cover_frac`, `border_min_cover_area_ft2`,
+`bridge_parts_max_gap_ft` added to config + threaded through
+`run_competing_review.py` / `run_seam_align.py`.
+
+**Still open:** (a) **1.02 over-includes** — gen 5,587 ac vs truth 4,623
+(+21%), IoU 0.76; Grace to review the trace/membership later (not a
+boundary-method issue). (b) `/code-review` on today's new logic (nick gate,
+bridge, delaunay) not yet run. (c) LOO over the full-rules pipeline still
+doesn't exist — quotable LOO number remains the pre-rules 0.82.

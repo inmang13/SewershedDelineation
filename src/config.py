@@ -41,8 +41,9 @@ def load_config(config_path: str) -> dict:
         if key not in cfg.get("parameters", {}):
             errors.append(f"parameters.{key}: missing")
 
-    # Validate enumerated parameters
-    valid_methods = {"morph_close", "blocks_dissolve", "hybrid", "concave"}
+    # Validate enumerated parameters (single source of truth: boundary.VALID_METHODS)
+    from boundary import VALID_METHODS
+    valid_methods = set(VALID_METHODS)
     method = cfg.get("parameters", {}).get("boundary_method")
     if method is not None and method not in valid_methods:
         errors.append(f"parameters.boundary_method: '{method}' not in {sorted(valid_methods)}")

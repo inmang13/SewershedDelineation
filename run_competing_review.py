@@ -77,6 +77,7 @@ def main():
     sel_r = params["selection_radius_ft"]
     method = params["boundary_method"]
     close_ft = params["close_radius_ft"]
+    max_edge_ft = params.get("delaunay_max_edge_ft", 1000.0)
     base = cfg["_base_dir"]
     csv_path = base / outputs["competing_review_csv"]
     gpkg_path = base / outputs["competing_review_gpkg"]
@@ -158,7 +159,8 @@ def main():
 
         def _score(units):
             u = None if units.empty else units.geometry.union_all()
-            g = build_boundary(units, method, served_union=u, close_ft=close_ft)
+            g = build_boundary(units, method, served_union=u, close_ft=close_ft,
+                               delaunay_max_edge_ft=max_edge_ft)
             return g, round(iou(g, truth), 4)
 
         full_geom, score0 = _score(pop.served)   # pre-exclude/split IoU (iou0)
@@ -166,6 +168,8 @@ def main():
             pipes, res.pidx_list, pop.served, sel_r,
             border_ring_ft=params.get("border_ring_ft", 75.0),
             border_min_expose=params.get("border_min_expose", 0.10),
+            border_min_cover_frac=params.get("border_min_cover_frac", 0.0),
+            border_min_cover_area_ft2=params.get("border_min_cover_area_ft2", 0.0),
             ignore_pidx=ignore_pidx)
         id_col = unit_id_column(ann)
 

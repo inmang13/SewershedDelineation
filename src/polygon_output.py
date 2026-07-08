@@ -252,6 +252,7 @@ def build_boundary_gdf(res, params: dict, served_gdf, served_union=None,
         concave_ratio=params.get("concave_ratio", 0.3),
         blocks_gdf=blocks_gdf,
         served_union=served_union,
+        delaunay_max_edge_ft=params.get("delaunay_max_edge_ft", 1000.0),
     )
     if geom is None or geom.is_empty:
         return None

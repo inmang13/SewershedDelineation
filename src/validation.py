@@ -80,6 +80,7 @@ METHOD_UNIT = {
     "blocks_dissolve": "blocks",
     "hybrid": "parcels",
     "concave": "parcels",
+    "delaunay": "parcels",   # param2 = max bridge edge (ft), fed via --close grid
 }
 
 
@@ -193,6 +194,8 @@ def _boundary_for(method, served_gdf, served_union, p2, blocks_gdf):
         kwargs["concave_ratio"] = p2
     elif method in ("morph_close", "hybrid"):
         kwargs["close_ft"] = p2
+    elif method == "delaunay":
+        kwargs["delaunay_max_edge_ft"] = p2
     if method == "hybrid":
         kwargs["blocks_gdf"] = blocks_gdf
     return build_boundary(served_gdf, method, **kwargs)
