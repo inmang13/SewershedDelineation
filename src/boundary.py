@@ -334,6 +334,12 @@ def split_overlap_equidistant(a, b, step_ft: float = 50.0):
     b_core = b.difference(a)
     if a_core.is_empty or b_core.is_empty:
         return a, b   # engulfed, not a partial overlap — leave for the trace fix
+    # Skip if removing the overlap would disconnect either basin: an overlap that
+    # cuts through a polygon (rather than sitting on its edge) leaves a multipart
+    # core, and the split would fragment the sewershed. Only split clean edge
+    # overlaps.
+    if len(_polygon_parts(a_core)) > 1 or len(_polygon_parts(b_core)) > 1:
+        return a, b
     from scipy.spatial import cKDTree
     a_pts = _densify_ring_points(a_core, step_ft)
     b_pts = _densify_ring_points(b_core, step_ft)
@@ -421,6 +427,132 @@ def enforce_containment(bounds_by_site: dict, min_frac: float = 0.8) -> dict:
                 out[big] = keep_all_parts(
                     make_valid(unary_union([out[big], out[small]])))
     return out
+
+
+def fill_uncovered_trace(boundary, in_pipes_gdf, buffer_ft: float):
+    """
+    Fill areas the trace serves but the parcel boundary missed (Grace's method,
+    2026-07-08): isolate the in-trace pipe NOT covered by the polygon, buffer
+    it, union it in, then fill the holes that closes.
+
+    The delaunay boundary is built from served PARCELS. Where an in-trace main
+    runs through ground with no selected parcels — a large unsewered void the
+    pipe still crosses (e.g. a highway interchange the collector rings) — the
+    boundary leaves a gap. Buffering the uncovered pipe and adding it bridges
+    that gap; a void ringed by in-trace pipe then closes into an interior hole
+    that fill_holes seals. A void with only FOREIGN pipe gets nothing added, so
+    it stays an open bay and is left alone — the fill only ever grows along this
+    basin's own mains. buffer_ft (~50–100) sets the corridor half-width.
+
+    Returns the grown boundary (holes filled, all parts kept), or the input
+    unchanged when there is no uncovered in-trace pipe.
+    """
+    if boundary is None or boundary.is_empty:
+        return boundary
+    if in_pipes_gdf is None or in_pipes_gdf.empty:
+        return boundary
+    uncovered = in_pipes_gdf.geometry.union_all().difference(boundary)
+    if uncovered.is_empty:
+        return boundary
+    grown = unary_union([boundary, uncovered.buffer(buffer_ft)])
+    # Keep only pieces that touch the original polygon — a buffered pipe segment
+    # sitting off on its own (a disconnected trace fragment) would otherwise add
+    # a floating island and fragment the boundary. The fill must GROW the
+    # existing shape, not spawn new parts (a 1-part site stays 1 part).
+    connected = [p for p in _polygon_parts(grown) if p.intersects(boundary)]
+    if not connected:
+        return boundary
+    return keep_all_parts(fill_holes(unary_union(connected)))
+
+
+def enclosed_pipe_voids(in_pipes_union, corridor_ft: float):
+    """
+    Voids fully ringed by this basin's own mains — the "closed loop" case
+    (Grace, 2026-07-08). Buffer the in-trace pipe network by corridor_ft and
+    union it; a highway interchange or similar unsewered void shows up as an
+    interior HOLE of that corridor (pipes wrap all the way around it, none run
+    through it). Returns the list of hole polygons. corridor_ft sets how wide a
+    gap in the pipe ring still reads as enclosed — half the widest street/void
+    mouth the loop should still close over.
+
+    Unlike convex_hull − boundary (which captures the basin's outer concavity,
+    not interior voids), this only ever returns genuinely surrounded holes.
+    """
+    if in_pipes_union is None or in_pipes_union.is_empty:
+        return []
+    corridor = in_pipes_union.buffer(corridor_ft)
+    filled = fill_holes(corridor)
+    if filled is None:
+        return []
+    voids = filled.difference(corridor)
+    return _polygon_parts(voids)
+
+
+def _ring_enclosure_frac(piece, pipes_union, dist_ft, step_ft):
+    """
+    Fraction of `piece`'s exterior perimeter that has an in-trace pipe within
+    dist_ft — i.e. how much of the cavity is ringed by this basin's own mains.
+    A true interior void (pipes loop all the way around) scores near 1; a
+    perimeter notch facing pipeless/unmapped land scores low on the open side.
+    """
+    ring = piece.exterior
+    if ring.length == 0 or pipes_union is None or pipes_union.is_empty:
+        return 0.0
+    n = max(int(ring.length // step_ft) + 1, 8)
+    near = 0
+    for t in np.linspace(0, ring.length, n):
+        if ring.interpolate(t).distance(pipes_union) <= dist_ft:
+            near += 1
+    return near / n
+
+
+def fill_cavities(boundary, in_trace_pipes_union, foreign_pipes_gdf, *,
+                  min_area_ft2, enclosure_frac: float = 0.75,
+                  enclosure_dist_ft: float = 120.0, step_ft: float = 50.0,
+                  foreign_buffer_ft: float = 0.0):
+    """
+    Fill a large concave cavity the trace loops around but no foreign main
+    claims (Grace's rule, 2026-07-08: a highway interchange or similar unsewered
+    void, ringed by this basin's own pipes, belongs to this basin).
+
+    The delaunay boundary hugs the served parcels, so an unsewered void inside
+    the basin (no parcels, gap wider than the bridge length) reads as a deep
+    notch in the outline. Candidate voids are the pieces of
+    convex_hull(boundary) − boundary. A piece is filled when it is:
+      * large              area >= min_area_ft2, and
+      * ring-enclosed      >= enclosure_frac of its perimeter has an in-trace
+                           pipe within enclosure_dist_ft — the "closed loop" of
+                           this basin's own mains wraps around it. (This, not a
+                           shared-perimeter test, is what separates an interior
+                           interchange void from the basin's outer edge dipping
+                           into pipeless/unmapped land.)
+      * foreign-pipe-free  no pipe outside this trace runs through it (nobody
+                           else drains it). foreign_buffer_ft optionally widens
+                           that test so a foreign main skirting the edge blocks
+                           the fill.
+
+    Returns the boundary with qualifying cavities unioned in (holes refilled,
+    all parts kept); unchanged when none qualify.
+    """
+    if boundary is None or boundary.is_empty:
+        return boundary
+    cavities = boundary.convex_hull.difference(boundary)
+    fills = []
+    for piece in _polygon_parts(cavities):
+        if piece.area < min_area_ft2:
+            continue
+        if _ring_enclosure_frac(piece, in_trace_pipes_union,
+                                enclosure_dist_ft, step_ft) < enclosure_frac:
+            continue   # not ringed by the trace — an edge notch, not a void
+        if foreign_pipes_gdf is not None and not foreign_pipes_gdf.empty:
+            test = piece.buffer(foreign_buffer_ft) if foreign_buffer_ft else piece
+            hit = foreign_pipes_gdf.sindex.query(test, predicate="intersects")
+            if len(hit):
+                continue   # another network drains this void
+        fills.append(piece)
+    if not fills:
+        return boundary
+    return keep_all_parts(fill_holes(unary_union([boundary, *fills])))
 
 
 def snap_to_blocks(geom, blocks_gdf, min_frac: float = 0.5):

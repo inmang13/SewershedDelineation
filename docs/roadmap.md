@@ -406,10 +406,13 @@ decision_log 2026-07-02. Remaining, in planned order:
    polygons (Tracts 5 and 7 may overlap — invisible to eyeball review in GIS).
    Doubles as the acceptance test for the competing-pipe check. Blocked on
    item 2's decisions landing (overlap should be measured post-exclusion).
-4. [ ] **Polygon cosmetics (after membership logic is right):** Tract 5-23 is
-   two polygons, should be one (bridging the road is acceptable); 1.02/13.01
-   highway-ramp gap (cosmetic, Grace says not critical); align polygon edges
-   to census blocks / roads / parcels after gap filling.
+4. [x] **Polygon cosmetics — LARGELY DONE (2026-07-08).** Boundary method now
+   delaunay (straight parcel-line edges, no arcs); `align_seams` coincides
+   shared borders; `bridge_parts` (runs last) stitches highway-split parts
+   (1.02); `fill_uncovered_trace` fills trace-served voids the parcels missed
+   (18.02 0.69->0.79). **24/24 sites single-part, all IoU >= 0.5, median ~0.875.**
+   Remaining: edge alignment to census blocks (deferred; blocks lost the IoU
+   sweep, see 2026-07-07 — parcel edges preferred). See decision_log 2026-07-08.
 5. [x] **Site-label → manhole mapping — RESOLVED (2026-07-02):** join
    `Sampling_Locations_05212026.shp` field `Tract` to `AssetID_tx`. Known
    pairs: 5→27508, 7→09289, 14→11069, 18.06→17863, 18.08→30976,

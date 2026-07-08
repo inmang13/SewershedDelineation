@@ -65,6 +65,12 @@ parameters:
   boundary_method: "delaunay"       # morph_close | blocks_dissolve | hybrid | concave | block_fill | delaunay
   delaunay_max_edge_ft: 500.0       # max Delaunay bridge edge (ft); delaunay only. 500 beat 750/1000/1500 pre-rules AND post-rules (0.8768 full-rules median, 2026-07-07)
   bridge_parts_max_gap_ft: 800.0    # seam-align post-pass: close radius for stitching a site's disjoint parts; fills the full corridor for pinch gaps up to ~this wide (Tract 1.02 highway = 717 ft). Between-parts only. 0 disables.
+  # Fill areas the trace serves but the parcel boundary missed: buffer in-trace
+  # pipe not covered by the polygon, union in, fill the closed holes. Grows only
+  # along this basin's own mains (foreign-only voids left open). 2026-07-08.
+  fill_uncovered_enabled: true
+  fill_uncovered_buffer_ft: 100.0   # corridor half-width around uncovered in-trace pipe (50 also fine)
+  resolve_overlaps_enabled: false   # equidistant midline split of overlapping basins; OFF — only nested/data overlaps exist and the split fragments large polygons (2026-07-08)
   close_radius_ft: 150.0            # morphological close radius (buffer +r then -r); morph_close/hybrid only
   concave_ratio: 0.3               # shapely.concave_hull ratio knob (0=tight, 1=convex); concave method only
 

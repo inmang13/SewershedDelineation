@@ -48,7 +48,7 @@ from population_join import (                               # noqa: E402
     split_border_contested, assign_remaining_by_buffer,
 )
 from polygon_output import CP_SEVERITY, unit_id_column      # noqa: E402
-from boundary import build_boundary                         # noqa: E402
+from boundary import build_boundary, fill_uncovered_trace   # noqa: E402
 from validation import load_truth, iou                      # noqa: E402
 
 CSV_COLUMNS = [
@@ -78,6 +78,8 @@ def main():
     method = params["boundary_method"]
     close_ft = params["close_radius_ft"]
     max_edge_ft = params.get("delaunay_max_edge_ft", 1000.0)
+    fill_uncov = params.get("fill_uncovered_enabled", True)
+    fill_uncov_buf = params.get("fill_uncovered_buffer_ft", 100.0)
     base = cfg["_base_dir"]
     csv_path = base / outputs["competing_review_csv"]
     gpkg_path = base / outputs["competing_review_gpkg"]
@@ -156,11 +158,14 @@ def main():
             continue
 
         pop = assign_population_units(pipes, res.pidx_list, parcels, sel_r)
+        in_pipes = pipes.iloc[sorted(set(res.pidx_list))]
 
         def _score(units):
             u = None if units.empty else units.geometry.union_all()
             g = build_boundary(units, method, served_union=u, close_ft=close_ft,
                                delaunay_max_edge_ft=max_edge_ft)
+            if g is not None and fill_uncov:
+                g = fill_uncovered_trace(g, in_pipes, fill_uncov_buf)
             return g, round(iou(g, truth), 4)
 
         full_geom, score0 = _score(pop.served)   # pre-exclude/split IoU (iou0)

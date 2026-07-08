@@ -95,29 +95,36 @@ def main():
 
     seams_before = coincident_seams(bounds, args.tol)
 
+    aligned = align_seams(bounds, tol_ft=args.tol)
+
+    # Optional equidistant midline split of overlapping basins (Grace 2026-07-08).
+    # OFF by default: the only large overlaps are nested sub-basins (intentional)
+    # or the 3.02/1.02 interceptor question (a the city data issue, not geometry),
+    # and the sequential Voronoi split fragments large polygons. Kept behind a
+    # flag for when a genuine peer-overlap case appears.
+    if cfg["parameters"].get("resolve_overlaps_enabled", False):
+        ov_before = _total_overlap_ac(aligned)
+        aligned = resolve_overlaps(aligned, step_ft=args.split_step)
+        ov_after = _total_overlap_ac(aligned)
+        print(f"resolve_overlaps: pairwise overlap {ov_before:.1f} -> "
+              f"{ov_after:.1f} ac")
+
+    # Bridge LAST: seal a site's disjoint parts across a wide gap, after
+    # align/split have finished moving edges (running it earlier lets the later
+    # passes re-fragment what it merged).
     bridge_gap = (args.bridge if args.bridge is not None
                   else cfg["parameters"].get("bridge_parts_max_gap_ft", 0.0))
     if bridge_gap and bridge_gap > 0:
         nb = 0
-        for sid, g in bounds.items():
+        for sid, g in aligned.items():
             stitched = bridge_parts(g, bridge_gap)
             if stitched is not g and stitched is not None:
                 before = len(getattr(g, "geoms", [g]))
                 after = len(getattr(stitched, "geoms", [stitched]))
                 if after < before:
                     nb += 1
-                bounds[sid] = stitched
+                aligned[sid] = stitched
         print(f"bridge_parts (gap <= {bridge_gap:g} ft): {nb} site(s) merged parts")
-
-    aligned = align_seams(bounds, tol_ft=args.tol)
-
-    # Split any area two basins both claim at the equidistant midline, so no
-    # parcel is double-counted (Grace 2026-07-08). Report the overlap removed.
-    ov_before = _total_overlap_ac(aligned)
-    aligned = resolve_overlaps(aligned, step_ft=args.split_step)
-    ov_after = _total_overlap_ac(aligned)
-    print(f"resolve_overlaps: pairwise overlap {ov_before:.1f} -> "
-          f"{ov_after:.1f} ac")
 
     seams_after = coincident_seams(aligned, args.tol)
 

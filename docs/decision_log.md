@@ -1332,3 +1332,56 @@ cross-comparable to the 0.877 from 2026-07-07 (truth changed).
 boundary-method issue). (b) `/code-review` on today's new logic (nick gate,
 bridge, delaunay) not yet run. (c) LOO over the full-rules pipeline still
 doesn't exist — quotable LOO number remains the pre-rules 0.82.
+
+---
+
+## 2026-07-08 (pm) — Fill trace-served voids the parcel boundary missed; resolve_overlaps disabled; bridge runs last
+
+**Decision (Grace's method):** `boundary.fill_uncovered_trace(boundary,
+in_trace_pipes, buffer_ft)` — isolate the in-trace pipe NOT covered by the
+polygon, buffer it (`fill_uncovered_buffer_ft`, 100 ft; 50 also fine), union it
+in, keep only pieces connected to the original polygon, then fill the holes that
+closes. Wired into `run_competing_review.py` (config `fill_uncovered_enabled`,
+default true), so it runs per site before seam-align.
+
+**Why:** the delaunay boundary is built from served PARCELS; where an in-trace
+main crosses ground with no selected parcels — a large unsewered void the
+collector rings (Tract 18.02's interior, a highway/undeveloped tract) — the
+boundary leaves a gap. Buffering the uncovered pipe + fill_holes closes it. A
+void with only FOREIGN pipe gets nothing added (stays an open bay, left alone),
+so the fill only ever grows along this basin's own mains. **18.02 (17506):
+IoU 0.69 -> 0.79.** Aggregate median essentially unchanged (0.875) — the fill
+lifts undersized weak sites without inflating others. The connected-only guard
+matters: without it, uncovered pipe far from the body added floating islands
+and fragmented the polygon.
+
+**Approaches tried and rejected first (for the record — all dead ends for
+"fill the interchange void"):** `convex_hull − boundary` (captures the basin's
+outer concavity / waist, not interior voids — ballooned to the hull);
+enclosed-pipe-corridor holes (interchange mouth too wide to close cleanly);
+perimeter-wrap + in-trace/foreign verdict (a big cavity always clips some pipe →
+over-filled); morphological-closing-difference (needs a large R that rounds the
+whole outline). Grace's buffer-the-uncovered-pipe method is the one that works
+and is now shipped. The probes (`run_uncov_probe.py` kept; `run_void_probe.py` /
+`run_cavity_probe.py` / hull/edge/snap/blockfill scratch) are deletion
+candidates.
+
+**resolve_overlaps (equidistant midline split) — DISABLED** (config
+`resolve_overlaps_enabled`, default false). It fragmented large polygons: the
+sequential Voronoi split leaves a disconnected core when an overlap cuts through
+a basin, and part counts blew up (Tract 22 -> 6 parts). Its value is negligible
+— the only large overlaps are **nested sub-basins** (3.01/22/3.02 inside 1.02,
+which Grace confirmed are correct drainage, so overlap there is intended and
+fine for demographics as distinct sampling questions) or the **3.02/33218
+interceptor** case (a the city data question, not geometry). A same-core-connected
+guard was added so it's safe if re-enabled for a genuine peer overlap.
+
+**Ordering fix:** `bridge_parts` now runs LAST in `run_seam_align.py` (after
+align/split), not first — running it early let the later passes re-fragment what
+it merged. **Final: 24/24 sites single-part, 0 multipart, all IoU >= 0.5,
+median ~0.875** (`output/sewershed_final.gpkg`).
+
+**Correction to the earlier 2026-07-08 entry:** 3.01 and 22 draining into 1.02
+is CORRECT nesting, not a leak (Grace). The 1.02 over-inclusion is the 3.02/33218
+artifact (pending the city) plus, now reduced, the void fills. 34374 (3.01's
+connection) is correct and stays.
