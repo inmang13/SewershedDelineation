@@ -26,8 +26,9 @@ centrally rather than in each method:
   - Keep ALL parts (multipart) -> a detached served pocket is real, not dropped.
 """
 
-from shapely import concave_hull, delaunay_triangles, make_valid
-from shapely.geometry import Polygon, MultiPolygon
+import numpy as np
+from shapely import concave_hull, delaunay_triangles, make_valid, voronoi_polygons
+from shapely.geometry import Polygon, MultiPolygon, MultiPoint
 from shapely.ops import unary_union, snap
 
 VALID_METHODS = ("morph_close", "blocks_dissolve", "hybrid", "concave",
@@ -290,6 +291,106 @@ def align_seams(bounds_by_site: dict, tol_ft: float = 50.0) -> dict:
             g = keep_all_parts(make_valid(snap(g, ref, tol_ft)))
         out[sid] = g
         ref = g if ref is None else unary_union([ref, g])
+    return out
+
+
+def _densify_ring_points(geom, step_ft):
+    """Points sampled every step_ft along every exterior/interior ring of geom."""
+    pts = []
+    for part in _polygon_parts(geom):
+        rings = [part.exterior, *part.interiors]
+        for ring in rings:
+            if ring.length == 0:
+                continue
+            n = max(int(ring.length // step_ft) + 1, 2)
+            pts += [ring.interpolate(t)
+                    for t in np.linspace(0, ring.length, n)]
+    return pts
+
+
+def split_overlap_equidistant(a, b, step_ft: float = 50.0):
+    """
+    Divide the area two sewersheds both claim along the line equidistant from
+    their exclusive cores, so neither double-counts it (Grace's rule,
+    2026-07-08: "take the middle distance and make that the new edge for both").
+
+    a_core = a − b and b_core = b − a are the parts each owns outright. The
+    overlap a ∩ b is partitioned by a Voronoi diagram of densified core-boundary
+    points: each sliver of overlap joins whichever core it sits nearer, and the
+    boundary between the two assignments IS the equidistant midline — one shared
+    edge for both. Returns (new_a, new_b) with no remaining overlap.
+
+    Returned unchanged when there is no overlap, or when one polygon is (near-)
+    nested in the other (a core is empty) — a fully-engulfed basin is a tracing
+    problem, not a midline case, and splitting it would just delete the inner
+    sewershed. Uses the same Voronoi machinery as population_join's parcel split.
+    """
+    if a is None or b is None or a.is_empty or b.is_empty:
+        return a, b
+    ov = a.intersection(b)
+    if ov.is_empty or ov.area == 0:
+        return a, b
+    a_core = a.difference(b)
+    b_core = b.difference(a)
+    if a_core.is_empty or b_core.is_empty:
+        return a, b   # engulfed, not a partial overlap — leave for the trace fix
+    from scipy.spatial import cKDTree
+    a_pts = _densify_ring_points(a_core, step_ft)
+    b_pts = _densify_ring_points(b_core, step_ft)
+    if not a_pts or not b_pts:
+        return a, b
+    seeds = a_pts + b_pts
+    labels = np.array([0] * len(a_pts) + [1] * len(b_pts))
+    tree = cKDTree(np.array([(p.x, p.y) for p in seeds]))
+    a_side, b_side = [], []
+    for cell in voronoi_polygons(MultiPoint(seeds),
+                                 extend_to=ov.envelope).geoms:
+        clip = cell.intersection(ov)
+        if clip.is_empty:
+            continue
+        rp = cell.representative_point()
+        _, idx = tree.query([rp.x, rp.y])
+        (a_side if labels[idx] == 0 else b_side).append(clip)
+    new_a = keep_all_parts(unary_union([a_core, *a_side]))
+    new_b = keep_all_parts(unary_union([b_core, *b_side]))
+    return new_a, new_b
+
+
+def resolve_overlaps(bounds_by_site: dict, step_ft: float = 50.0,
+                     min_overlap_ft2: float = 1.0,
+                     max_engulf_frac: float = 0.5) -> dict:
+    """
+    Split every pair of *partially* overlapping sewersheds at their equidistant
+    midline so no area is claimed twice (double-counted parcels — the demographic
+    join's hazard).
+
+    Only genuine partial overlaps are split. A pair where the overlap exceeds
+    `max_engulf_frac` of the smaller polygon is ENGULFMENT, not a peer overlap:
+    one basin's trace has leaked into and swallowed the other (e.g. 1.02
+    containing all of 3.01 / 3.02 / 22 via a cross-connection main). A midline
+    split there is degenerate — the engulfed basin has almost no exclusive core,
+    so the split hands it away wholesale (Tract 22 -> IoU 0.16). Those pairs are
+    left as-is for the source fix (cut the leaking pipe; the returned dict still
+    overlaps and the caller should report it) rather than silently mangled.
+
+    Pairs are visited in sorted-key order; each split's result feeds the next
+    comparison, so a parcel contested by three basins resolves greedily but
+    deterministically. `min_overlap_ft2` skips negligible slivers.
+    """
+    out = dict(bounds_by_site)
+    ids = sorted(out)
+    for i, aid in enumerate(ids):
+        for bid in ids[i + 1:]:
+            A, B = out[aid], out[bid]
+            if A is None or B is None or A.is_empty or B.is_empty:
+                continue
+            inter = A.intersection(B)
+            if inter.is_empty or inter.area <= min_overlap_ft2:
+                continue
+            smaller = min(A.area, B.area)
+            if smaller > 0 and inter.area / smaller > max_engulf_frac:
+                continue   # engulfment — needs the trace fix, not a midline
+            out[aid], out[bid] = split_overlap_equidistant(A, B, step_ft)
     return out
 
 
