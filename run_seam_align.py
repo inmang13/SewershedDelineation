@@ -2,16 +2,18 @@
 CLI runner: align shared borders across the final sewershed polygons.
 
 Usage:
-    python run_seam_align.py [--config config.yaml] [--tol 50] [--contain 0.8]
+    python run_seam_align.py [--config config.yaml] [--tol 50]
                              [--gpkg QC/competing_pipe_review.gpkg]
 
 Reads the full-rules per-site boundaries (the `boundary` layer written by
 run_competing_review.py — exclude/split/buffer-assign applied), then:
 
-  1. align_seams     snap each polygon to its already-processed neighbours so
-                     shared borders coincide exactly (tol ft; boundary.py)
-  2. enforce_containment  nested pairs (overlap >= contain frac of the smaller
-                     polygon, e.g. Tract 3.01 inside 1.02) become exact subsets
+  1. align_seams       snap each polygon to its already-processed neighbours so
+                       shared borders coincide exactly (tol ft; boundary.py)
+  2. resolve_overlaps  equidistant midline split of overlapping basins — OPTIONAL,
+                       off unless parameters.resolve_overlaps_enabled
+  3. bridge_parts      stitch a site's disjoint parts across a wide gap (runs
+                       last so earlier passes can't re-fragment merged parts)
 
 Verifies the pass is cosmetic: per-site IoU vs truth before/after (deltas
 should be ~0), and reports the coincident-seam length per adjacent pair before
@@ -28,7 +30,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from config import load_config                       # noqa: E402
-from boundary import align_seams, resolve_overlaps, bridge_parts  # noqa: E402
+from boundary import (align_seams, resolve_overlaps, bridge_parts,  # noqa: E402
+                      SQFT_PER_ACRE)
 
 
 def _total_overlap_ac(bounds: dict) -> float:
@@ -41,7 +44,7 @@ def _total_overlap_ac(bounds: dict) -> float:
             if ga is None or gb is None or ga.is_empty or gb.is_empty:
                 continue
             tot += ga.intersection(gb).area
-    return tot / 43560.0
+    return tot / SQFT_PER_ACRE
 from validation import iou                           # noqa: E402
 
 
@@ -159,7 +162,7 @@ def main():
             ga, gb = aligned[a], aligned[b]
             if ga is None or gb is None or ga.is_empty or gb.is_empty:
                 continue
-            ov = ga.intersection(gb).area / 43560.0
+            ov = ga.intersection(gb).area / SQFT_PER_ACRE
             if ov > 0.01:
                 resid.append((tract.get(a, a), tract.get(b, b), round(ov, 2)))
     resid.sort(key=lambda r: -r[2])

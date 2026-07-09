@@ -77,7 +77,7 @@ def main():
     sel_r = params["selection_radius_ft"]
     method = params["boundary_method"]
     close_ft = params["close_radius_ft"]
-    max_edge_ft = params.get("delaunay_max_edge_ft", 1000.0)
+    max_edge_ft = params.get("delaunay_max_edge_ft", 500.0)
     fill_uncov = params.get("fill_uncovered_enabled", True)
     fill_uncov_buf = params.get("fill_uncovered_buffer_ft", 100.0)
     base = cfg["_base_dir"]

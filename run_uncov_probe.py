@@ -20,7 +20,8 @@ import geopandas as gpd
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from config import load_config                       # noqa: E402
 from graph_builder import load_graph_from_config, build_node_index  # noqa: E402
-from boundary import fill_holes, keep_all_parts, _polygon_parts  # noqa: E402
+from boundary import (fill_holes, keep_all_parts, _polygon_parts,  # noqa: E402
+                      SQFT_PER_ACRE)
 from validation import load_truth, trace_sites, iou  # noqa: E402
 from shapely.ops import unary_union                  # noqa: E402
 
@@ -61,11 +62,11 @@ def main():
     filled = keep_all_parts(fill_holes(grown))
 
     print(f"\nSite {args.site}  buffer {args.buffer:g} ft")
-    print(f"  boundary        {boundary.area/43560:8.1f} ac  IoU {iou(boundary,truth):.3f}")
+    print(f"  boundary        {boundary.area/ SQFT_PER_ACRE:8.1f} ac  IoU {iou(boundary,truth):.3f}")
     print(f"  uncovered pipe  {uncovered.length:8.0f} ft")
-    print(f"  after fill      {filled.area/43560:8.1f} ac  IoU {iou(filled,truth):.3f}")
-    print(f"  net added       {(filled.area-boundary.area)/43560:8.1f} ac  "
-          f"(truth {truth.area/43560:.1f} ac)")
+    print(f"  after fill      {filled.area/ SQFT_PER_ACRE:8.1f} ac  IoU {iou(filled,truth):.3f}")
+    print(f"  net added       {(filled.area-boundary.area)/ SQFT_PER_ACRE:8.1f} ac  "
+          f"(truth {truth.area/ SQFT_PER_ACRE:.1f} ac)")
 
     import matplotlib
     matplotlib.use("Agg")

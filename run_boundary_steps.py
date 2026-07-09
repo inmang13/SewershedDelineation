@@ -36,7 +36,8 @@ import geopandas as gpd
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from config import load_config                       # noqa: E402
 from graph_builder import load_graph_from_config, build_node_index  # noqa: E402
-from boundary import morph_close, fill_holes, keep_all_parts  # noqa: E402
+from boundary import (morph_close, fill_holes, keep_all_parts,  # noqa: E402
+                      SQFT_PER_ACRE)
 from population_join import load_units, assign_population_units, \
     buffer_upstream_pipes                             # noqa: E402
 from validation import load_truth, trace_sites       # noqa: E402
@@ -84,7 +85,7 @@ def main():
                 .to_file(out, layer=f"{name}_lines", driver="GPKG")
         nparts = len(getattr(geom, "geoms", [geom]))
         print(f"  {name}: {geom.geom_type}, {nparts} part(s), "
-              f"area {geom.area / 43560:.1f} ac" if geom.area else f"  {name}: lines")
+              f"area {geom.area / SQFT_PER_ACRE:.1f} ac" if geom.area else f"  {name}: lines")
 
     # 01 pipes
     up = pipes.iloc[sorted(set(pidx))]
