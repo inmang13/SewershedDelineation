@@ -1385,3 +1385,41 @@ median ~0.875** (`output/sewershed_final.gpkg`).
 is CORRECT nesting, not a leak (Grace). The 1.02 over-inclusion is the 3.02/33218
 artifact (pending the city) plus, now reduced, the void fills. 34374 (3.01's
 connection) is correct and stays.
+
+---
+
+## 2026-07-08 (pm) — Full-rules leave-one-out validation: median IoU 0.875 in-sample / 0.863 LOO
+
+**What:** `run_fullrules_loo.py` — leave-one-out over the SHIPPED full-rules
+pipeline (delaunay boundary + nick gate + competing-pipe exclude/split/
+buffer-assign + fill_uncovered_trace). Drives the real `run_competing_review.py`
+once per (selection_radius_ft × delaunay_max_edge_ft) combo via config variants
+writing to `output/loo_scratch/` (production QC gpkg untouched), reads each run's
+per-site IoU from the `boundary` layer, then reuses `validation.loo_reaggregate`
+(fold winner picked by median over the OTHER 23 sites). Grid: sel {50,100} ×
+edge {500,750,1000}, all 24 sites, no exclusions.
+
+**Result:**
+- In-sample best: **median IoU 0.8751** (sel_r=100, edge=500).
+- **LOO median (held-out): 0.8628. Optimism gap +0.0123.**
+- Fold-stable: **edge=500 selected in all 24 folds** (sel_r=100 ×12, sel_r=50
+  ×11 — the two are near-tied at 0.8751/0.8748; edge is the load-bearing knob).
+- **24/24 sites ≥ 0.5 at every combo.** Higher edge degrades monotonically
+  (over-bridging): edge 500 > 750 > 1000 at both radii.
+- seam-align excluded from the score (IoU-neutral, max |Δ| ~0.01), so the
+  boundary-layer IoU is the fair per-site number.
+
+**Quotable:** "Full-rules median IoU 0.875 in-sample, 0.863 leave-one-out
+(optimism +0.012), fold-stable (delaunay edge=500 in all 24 folds); 24/24
+gravity-tractable sites ≥ 0.5."
+
+**HONEST SCOPE (must accompany the number):** this LOO cross-validates the
+**sel_r × edge grid pick only**. The nick-gate thresholds (2% / 0.05 ac), the
+boundary-method choice (delaunay over the rejected experiments), the fill buffer
+(100 ft) and the bridge gap (800 ft) were hand-derived against these same 24
+sites and stay frozen across folds — they are invisible to this LOO. A small gap
+therefore means the grid pick is **stable**, NOT that the pipeline generalizes to
+a new city. A true out-of-sample estimate needs a held-out city (multi-city =
+future work / Phase 9 scoping). Compare: the earlier PRE-rules boundary LOO was
+0.8176 held-out / +0.007 gap; the full-rules number is higher (membership rules +
+fill add ~+0.05 median) with a marginally larger gap.

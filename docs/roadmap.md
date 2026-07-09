@@ -252,8 +252,12 @@ shared target-resolution fn; fix `qc_flags.gpkg` layer clobbering. Prereq for th
 - One-command demo: `python run.py --config examples/toy/config.yaml` → sewershed polygon.
 
 **Track D — Validation numbers + writeup (parallel; feeds E).**
-- Re-sweep + LOO against `Sampling_Polygons_07062026.shp` for a quotable *tuned* IoU (current 0.86
-  is single-config). Long-pending.
+- [x] **Re-sweep + full-rules LOO — DONE 2026-07-08** (`run_fullrules_loo.py`).
+  **Median IoU 0.875 in-sample / 0.863 LOO (optimism +0.012), fold-stable
+  (delaunay edge=500 in all 24 folds); 24/24 sites ≥ 0.5.** Caveat: LOO
+  cross-validates the sel_r×edge pick only — thresholds/method are hand-fit and
+  frozen, so this is a stability result, not out-of-sample generalization (needs
+  a held-out city). See decision_log 2026-07-08.
 - Rich-HTML writeup: method, validation, boundary-method sweep, results, figures.
 - Honest scoping paragraphs: **truth = agreement with expert manual delineation, not ground-truth
   accuracy** (state who drew the polygons); **gravity-only** — force-main-fed subbasins undercounted
