@@ -44,8 +44,8 @@
 <div class="wrap">
 <header>
   <h1>SewershedDelineation Project Map</h1>
-  <p class="sub">Semi-automated sewershed delineation for eDNA sampling — traces the upstream gravity network from a manhole and builds a served-population polygon. This map shows the pipeline DAG plus the side quests feeding it.</p>
-  <p class="meta">Generated 2026-07-06 · derived from CLAUDE.md, docs/roadmap.md, docs/decision_log.md, src/ tree, git log. Status is a snapshot — re-derive before trusting.</p>
+  <p class="sub">Semi-automated sewershed delineation for eDNA sampling: trace the upstream gravity network from a manhole, assign served parcels, build a truth-like polygon. Solid backbone = the delineation pipeline; dashed = QC / validation / data-repair work that branches off it.</p>
+  <p class="meta">Generated 2026-07-08 · derived from CLAUDE.md, docs/roadmap.md, docs/decision_log.md, src/ tree, git log. Status is a snapshot — re-derive before trusting.</p>
 </header>
 
 <h2>Pipeline &amp; side quests</h2>
@@ -60,38 +60,39 @@ flowchart TD
   classDef quest   fill:#efe9fb,stroke:#4a3aa7,color:#241a56;
   classDef ext     fill:#fcfcfb,stroke:#c3c2b7,color:#52514e,stroke-dasharray:4 3;
 
-  CFG["Config loader<br/><small>done · config.py, YAML</small>"]:::done
-  REPAIR["Load-time repair<br/><small>done · splits / edits / snaps in memory</small>"]:::done
-  QA["Network QA<br/><small>done · flags on the shared graph</small>"]:::done
-  GRAPH["Directed graph<br/><small>done · geometry-first, pidx edges</small>"]:::done
-  TRACE["Upstream traversal<br/><small>done · reverse-BFS from manhole</small>"]:::done
-  MEMBER["Population membership<br/><small>done · select + explode + surround + split + buffer-assign</small>"]:::done
-  BND["Boundary<br/><small>done · morph_close, median IoU 0.86</small>"]:::done
-  POLY["Polygon output + flags<br/><small>done · sewershed.shp + delineation flags</small>"]:::done
-  QCOUT["QC spatial output<br/><small>done · qc_flags.gpkg, basemaps</small>"]:::done
-  RUN["Phase 7 run.py<br/><small>partial · multi-site loop not unified</small>"]:::partial
-  DEMO["Demographic join (ACS)<br/><small>parked · needs area apportionment</small>"]:::parked
+  cfg["Config load (P1)<br/><small>done · YAML paths+params, CRS 2264 ft</small>"]:::done
+  qa["Network QA (P2)<br/><small>done · flag-only, 1066 flags, no geom edits</small>"]:::done
+  gbuild["Graph builder (P3)<br/><small>done · directed NetworkX, geometry-first</small>"]:::done
+  trace["Upstream traversal (P4)<br/><small>done · reverse trace from manhole</small>"]:::done
+  memb["Membership (P5)<br/><small>done · intersect-any + competing-pipe + nick gate</small>"]:::done
+  bound["Boundary (P8)<br/><small>done · delaunay 500 + void-fill + seam-align</small>"]:::done
+  out["Polygon + flags (P6)<br/><small>done · sewershed.shp, delineation flags</small>"]:::done
+  run7["Unified run.py (P7)<br/><small>parked · multi-site spine; batch runners cover it today</small>"]:::parked
+  p9["JOSS deliverable (P9)<br/><small>partial · validation done; repo/writeup/toy example pending</small>"]:::partial
+  p10["Demographics (P10)<br/><small>parked · block apportionment; research payload, next</small>"]:::parked
 
-  CFG --> REPAIR --> QA --> GRAPH --> TRACE --> MEMBER --> BND --> POLY --> QCOUT
-  POLY --> RUN
-  QCOUT --> RUN
-  POLY -. "downstream goal" .-> DEMO
+  cfg --> qa --> gbuild --> trace --> memb --> bound --> out
+  out --> run7 --> p9
+  out -. "join ACS/NHGIS" .-> p10
 
-  TRUTH["Truth polygons<br/><small>off-DAG · Sampling_Polygons_07062026 (1.02+CB1)</small>"]:::ext
-  VAL["Validation<br/><small>partial · IoU 0.86 single-config; sweep/LOO pending</small>"]:::partial
-  TRUTH -. "hand-drawn truth" .-> VAL
-  VAL -. "IoU screens boundary" .-> BND
+  valid["Validation + LOO<br/><small>done · median IoU 0.875 / 0.863 LOO, 24/24 sites</small>"]:::ext
+  blocks["Census blocks<br/><small>staged · TIGER + NHGIS race/pop</small>"]:::ext
+  valid -. "scores vs 24 truth polys" .-> bound
+  valid -. "quotable number" .-> p9
+  blocks -. "input" .-> p10
 
   subgraph SQ ["SIDE QUESTS"]
-    CPRULES["Competing-pipe rules<br/><small>done · border-exclude / split / buffer-assign</small>"]:::quest
-    REVIEW["QA + parcel review loops<br/><small>done · CSV-driven decisions</small>"]:::quest
-    BASIN["Monitoring-basin catches<br/><small>pending · RMO / HTP geometry</small>"]:::quest
-    SWEEP["Re-sweep + LOO<br/><small>pending · quotable tuned number</small>"]:::quest
+    direction TB
+    cpq["Competing-pipe QC<br/><small>done · exclude/split/buffer-assign; QC rounds 1-2</small>"]:::quest
+    edits["Pipe edits + midspan splits<br/><small>done · flip/delete/extend, 26 tee splits</small>"]:::quest
+    the city["the city data Qs<br/><small>blocked · pipe 33218 interceptor artifact (1.02)</small>"]:::blocked
+    review["Code review pass<br/><small>done · 2-axis; untuned default fixed, dead code cut</small>"]:::quest
+    meter["Meter service-area<br/><small>done · off-line side analysis</small>"]:::quest
   end
-  CPRULES -. "membership logic" .-> MEMBER
-  REVIEW -. "feeds repair" .-> REPAIR
-  SWEEP -. "re-tunes params" .-> VAL
-  BASIN -. "cross-project QC" .-> TRACE
+  cpq -. "hardens" .-> memb
+  edits -. "repairs" .-> gbuild
+  the city -. "gates true extent" .-> memb
+  review -. "hardened" .-> bound
 </pre>
 </div>
 
@@ -104,24 +105,23 @@ flowchart TD
   <span><span class="dot" style="background:#efe9fb;border-color:#4a3aa7"></span>side quest</span>
   <span><span class="dot" style="background:#fcfcfb;border-color:#c3c2b7"></span>off-DAG lane</span>
 </div>
-<p class="note">Solid arrows are the one-way delineation pipeline. Dashed edges are off-DAG: validation screens the boundary without being a stage in it, and side quests feed/harden the main line (some loop back to regenerate earlier artifacts — kept dashed to preserve the acyclic backbone).</p>
+<p class="note">Solid arrows are the one-way delineation pipeline (the acyclic backbone). Dashed edges are off-DAG: validation and census-block inputs (which screen/feed but aren't stages), and side quests that harden or repair an earlier stage (a loop back — kept dashed and outside the DAG on purpose).</p>
 
 <h2>Phase / stage status</h2>
 <div class="card" style="overflow-x:auto">
 <table>
   <thead><tr><th>Phase / stage</th><th>Status</th><th>Module(s)</th><th>Where it stands · critical-path item</th></tr></thead>
   <tbody>
-    <tr><td>1 · Config loader</td><td class="st" style="color:#1baf7a">done</td><td class="mod">config.py</td><td>YAML-driven paths/params; EPSG:2264, feet.</td></tr>
-    <tr><td>Load-time repair</td><td class="st" style="color:#1baf7a">done</td><td class="mod">pipe_splits, pipe_edits, qa_review, node_layer</td><td>Midspan splits + flip/delete/extend + manual snaps applied in memory in every load path; <code>data/</code> untouched. Overflow 33250 deleted this session.</td></tr>
-    <tr><td>2 · Network QA</td><td class="st" style="color:#1baf7a">done</td><td class="mod">network_qa, pdf_maps</td><td>Ported onto the shared graph/pidx; flags describe the traced topology. Signed off.</td></tr>
-    <tr><td>3 · Directed graph</td><td class="st" style="color:#1baf7a">done</td><td class="mod">graph_builder</td><td>Geometry-first (line start = upstream); one residual 2-node SCC, no sample site touches it.</td></tr>
-    <tr><td>4 · Upstream traversal</td><td class="st" style="color:#1baf7a">done</td><td class="mod">traversal</td><td>Reverse-BFS by FACILITYID/coordinate; false-headwater guard.</td></tr>
-    <tr><td>5 · Population membership</td><td class="st" style="color:#1baf7a">done</td><td class="mod">population_join</td><td><strong>Overhauled this session:</strong> intersect-any select → explode multipart → border/inner surround test → border-exclude → equidistant split → buffered-pipe assignment. 665 keep / 437 exclude / 48 split.</td></tr>
-    <tr><td>8 · Boundary</td><td class="st" style="color:#1baf7a">done</td><td class="mod">boundary</td><td>morph_close (sel_r=50, close=150). Median IoU <strong>0.86, 24/24 sites ≥ 0.5</strong> vs the edited truth.</td></tr>
-    <tr><td>6 · Polygon output + flags</td><td class="st" style="color:#1baf7a">done</td><td class="mod">polygon_output</td><td>sewershed.shp + delineation flags (large_catchment, no_upstream, low_population_match).</td></tr>
-    <tr><td>QC spatial output</td><td class="st" style="color:#1baf7a">done</td><td class="mod">qc_output, pdf_maps</td><td>qc_flags.gpkg (network + delineation), satellite/street basemaps.</td></tr>
-    <tr><td>7 · Multi-site runner</td><td class="st" style="color:#eda100">partial</td><td class="mod">run.py (not built)</td><td><strong>The one open pipeline gap.</strong> A per-site loop exists piecemeal across validation.py / run_competing_review.py; not unified into a single <code>run.py</code>.</td></tr>
-    <tr><td>Demographic join</td><td class="st" style="color:#898781">parked</td><td class="mod">— (deferred)</td><td>ACS race/income/poverty on the output polygon. Blocked on area-apportioning split/part units back to whole assessor records.</td></tr>
+    <tr><td>P1 Config load</td><td class="st" style="color:#1baf7a">done</td><td class="mod">config.py</td><td>YAML paths+params validated; method enum now from <code>boundary.VALID_METHODS</code> (single source of truth).</td></tr>
+    <tr><td>P2 Network QA</td><td class="st" style="color:#1baf7a">done</td><td class="mod">network_qa.py, pdf_maps.py</td><td>Flag-only (no geometry edits); reconciled onto the shared graph; 1,066 flags. Signed off via planted-defect tests.</td></tr>
+    <tr><td>P3 Graph builder</td><td class="st" style="color:#1baf7a">done</td><td class="mod">graph_builder.py</td><td>Directed NetworkX, geometry-first (line start = upstream); 38,359 edges, 0 direction disagreements. 1 known 2-node SCC.</td></tr>
+    <tr><td>P4 Upstream traversal</td><td class="st" style="color:#1baf7a">done</td><td class="mod">traversal.py</td><td>Reverse trace; validated vs nx.ancestors oracle; false-headwater snap guarded.</td></tr>
+    <tr><td>P5 Membership</td><td class="st" style="color:#1baf7a">done</td><td class="mod">population_join.py</td><td>Intersect-any + competing-pipe (exclude/split/buffer-assign) + nick gate (frac AND area) drops corner-grazed parcels. Watch: nick thresholds hand-fit.</td></tr>
+    <tr><td>P8 Boundary</td><td class="st" style="color:#1baf7a">done</td><td class="mod">boundary.py</td><td>delaunay edge=500 (straight parcel-line edges) + fill_uncovered_trace (voids the trace serves) + align_seams + bridge_parts (last). LOO-validated; 24/24 single-part.</td></tr>
+    <tr><td>P6 Polygon + flags</td><td class="st" style="color:#1baf7a">done</td><td class="mod">polygon_output.py, qc_output.py</td><td>Final sewershed.shp + delineation flags (large_catchment / no_upstream / low_population_match) + QC GeoPackage.</td></tr>
+    <tr><td>P7 Unified run.py</td><td class="st" style="color:#898781">parked</td><td class="mod">(none yet)</td><td><b>Critical path for the JOSS example.</b> Single spine wiring config→…→flags, single + multi-site. Batch runners cover it functionally today; P2 bugs 4/6 fold in here.</td></tr>
+    <tr><td>P9 JOSS deliverable</td><td class="st" style="color:#eda100">partial</td><td class="mod">docs/, paper/ (tbd)</td><td>Validation number done (0.875/0.863). Pending: repo hygiene (LICENSE, pyproject), toy example (gated by P7), rich-HTML writeup, paper.md + Zenodo DOI.</td></tr>
+    <tr><td>P10 Demographics</td><td class="st" style="color:#898781">parked</td><td class="mod">demographics.py (tbd)</td><td><b>The research payload — recommended next.</b> Census-block areal apportionment. Race/pop from staged NHGIS DHC; income/poverty need an ACS block-group pull; diet has no source yet.</td></tr>
   </tbody>
 </table>
 </div>
@@ -131,16 +131,17 @@ flowchart TD
 <table>
   <thead><tr><th>Side quest</th><th>State</th><th>Feeds / outcome</th></tr></thead>
   <tbody>
-    <tr><td>Competing-pipe membership rules</td><td class="st" style="color:#4a3aa7">done</td><td>Border-exclude, equidistant split, buffered-pipe assignment, dangling-≤3 ignore — all in population_join; drove median IoU 0.81 → 0.86 this session.</td></tr>
-    <tr><td>QA + parcel review loops</td><td class="st" style="color:#4a3aa7">done</td><td>CSV-driven human decisions (qa_review_decisions.csv, competing_pipe_review.csv) consumed at load / boundary time; reproducible, source data untouched.</td></tr>
-    <tr><td>1.02 + CB1 truth merge</td><td class="st" style="color:#4a3aa7">done</td><td>Merged monitoring basin CB1 into the Tract 1.02 truth polygon (new Sampling_Polygons_07062026); 1.02 IoU 0.37 → 0.73.</td></tr>
-    <tr><td>Monitoring-basin data-quality catches</td><td class="st" style="color:#eda100">pending</td><td>RMO / HTP basin geometry looks wrong (cross-project catch for RDII). Awaiting Grace to pin each mismatch.</td></tr>
-    <tr><td>Re-sweep + LOO</td><td class="st" style="color:#eda100">pending</td><td>Fresh method × radius sweep + leave-one-out against the 07062026 truth for a defensible <em>tuned</em> IoU (current 0.86 is single-config).</td></tr>
+    <tr><td>Validation + full-rules LOO</td><td class="st" style="color:#1baf7a">done</td><td>validation.py + run_fullrules_loo.py. Median IoU <b>0.875 in-sample / 0.863 LOO</b> (optimism +0.012), fold-stable (edge=500 in all 24 folds). Scores the boundary; feeds the JOSS number. Caveat: cross-validates the sel_r×edge pick only.</td></tr>
+    <tr><td>Competing-pipe QC (rounds 1–2)</td><td class="st" style="color:#1baf7a">done</td><td>population_join competing check + run_competing_review batch. Hardens membership; produces contested-parcel review CSV/gpkg.</td></tr>
+    <tr><td>Pipe edits + midspan splits</td><td class="st" style="color:#1baf7a">done</td><td>pipe_edits.py (flip/delete/extend, 8 applied) + pipe_splits.py (26 midspan tee splits, in-memory). Repairs graph topology; source-layer fixes on the maintainer list.</td></tr>
+    <tr><td>the city data questions</td><td class="st" style="color:#e34948">blocked</td><td>docs/the city_data_questions.md. Pipe 33218 routes the trunk interceptor into Tract 1.02 (backwards, no invert); cutting it → 1.02 IoU 0.73→0.86. Awaiting the city confirm — do not edit.</td></tr>
+    <tr><td>Code review (2-axis)</td><td class="st" style="color:#1baf7a">done</td><td>Standards + Spec parallel review of the boundary work. Fixed the untuned delaunay default (1000→500), removed dead experiment code, named magic numbers.</td></tr>
+    <tr><td>Meter service-area estimation</td><td class="st" style="color:#1baf7a">done</td><td>Off-line side analysis (git 2616163) — separate from the parcel delineation line.</td></tr>
   </tbody>
 </table>
 </div>
 
-<p class="note" style="margin-top:22px; color:var(--muted)">Guardrails: <strong>geometry-first</strong> (digitized line direction is authoritative; attributes are cross-checks). <strong>Never edit source data</strong> — all repairs/edits are in-memory, config/CSV-driven, reproducible and reversible. <strong>Flag, don't auto-correct</strong> direction errors. External truth data (the lab's shapefiles) is edited only with Grace's sign-off, surgically, with the original archived.</p>
+<p class="note" style="margin-top:22px; color:var(--muted)">Load-bearing guardrails: (1) <b>Polygon = dissolved union of served population units</b>, not a pipe buffer — clean parcel boundaries for the demographic join. (2) <b>Direction errors are flagged, not auto-corrected</b>; geometry-first (line start = upstream), inverts are cross-checks. (3) <b>A lift station at the sampling point is a terminal end of a gravity basin</b> — trace it normally; never special-case pumped target sites. (4) <b>Truth = agreement with expert manual delineation, not ground-truth accuracy</b>; gravity-only (force-main-fed subbasins undercounted).</p>
 </div>
 
 <script>
