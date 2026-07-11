@@ -165,6 +165,126 @@ parameters:
   iou_floor_n_sites: 20             # N  — winner needs >= N of the ~21 aggregate sites at IoU >= 0.5
                                     #      (aggregate excludes 30804 pumped + 02201/03442 undiagnosed)
 
+# ---------------------------------------------------------------------------
+# Demographic join phase (src/census_api.py, census_data.py, demographics.py,
+# run_demographics.py). Pulls socioeconomic variables from the public-domain
+# Census API and apportions them into each sewershed (dasymetric residential
+# mask). Needs a free Census API key — see src/census_api.py header.
+# ---------------------------------------------------------------------------
+census:
+  state_fips: "37"                 # North Carolina
+  county_fips: "063"               # the city County
+  data_dir: "data/census"          # local cache dir (created on pull)
+  manifest_path: "data/census/manifest.json"
+  # Vintages: decennial pinned (race/ethnicity full count). ACS "latest" chases
+  # the newest 5-yr release for live/dashboard use; PIN it to a year (e.g. 2023)
+  # for a reproducible paper/demo run.
+  decennial_vintage: 2020
+  acs5_vintage: "latest"
+
+  # code: label — drives what the freshness pull requests (label is documentation
+  # only; the engine reads roles below by code).
+  decennial_variables:            # 2020 PL 94-171
+    P1_001N: total_population
+    P1_003N: white_alone
+    P1_004N: black_alone
+    P1_005N: amind_alone
+    P1_006N: asian_alone
+    P1_007N: nhpi_alone
+    P1_008N: other_alone
+    P1_009N: two_or_more
+    P2_002N: hispanic
+    P2_003N: not_hispanic
+  acs5_variables:                 # ACS 5-year, block group
+    B19013_001E: median_hh_income
+    B19013_001M: median_hh_income_moe
+    # C17002 (ratio of income to poverty) — the BG-level poverty table. B17001 is
+    # tract+ only (returns null at block group). Below poverty = 002 (<0.50) + 003
+    # (0.50-0.99), i.e. ratio < 1.00.
+    C17002_001E: poverty_universe
+    C17002_002E: poverty_under050
+    C17002_003E: poverty_050_099
+    C17002_001M: poverty_universe_moe
+    C17002_002M: poverty_under050_moe
+    C17002_003M: poverty_050_099_moe
+    B19058_001E: households_total
+    B19058_002E: households_snap
+    B19058_001M: households_total_moe
+    B19058_002M: households_snap_moe
+    B19001_001E: hhinc_total
+    B19001_002E: hhinc_lt10k
+    B19001_003E: hhinc_10_15k
+    B19001_004E: hhinc_15_20k
+    B19001_005E: hhinc_20_25k
+    B19001_006E: hhinc_25_30k
+    B19001_007E: hhinc_30_35k
+    B19001_008E: hhinc_35_40k
+    B19001_009E: hhinc_40_45k
+    B19001_010E: hhinc_45_50k
+    B19001_011E: hhinc_50_60k
+    B19001_012E: hhinc_60_75k
+    B19001_013E: hhinc_75_100k
+    B19001_014E: hhinc_100_125k
+    B19001_015E: hhinc_125_150k
+    B19001_016E: hhinc_150_200k
+    B19001_017E: hhinc_200k_plus
+
+demographics:
+  # Residential mask (dasymetric surface). PARUSECODE is a ZONING code in the city;
+  # PARUSEDESC is the actual land use.
+  land_use_desc_column: "PARUSEDESC"
+  residential_desc_prefixes: ["RES/"]
+  residential_desc_contains: ["APT", "CONVERTED RESID"]
+  property_value_col: "PARVAL"      # assessor total parcel value
+
+  # Boundary input: the 24-site production layer. SiteID == manhole FACILITYID.
+  boundary_gpkg: "output/sewershed_final.gpkg"
+  boundary_layer: "boundary"
+  site_id_field: "SiteID"
+  tract_field: "tract"
+
+  # Variable roles — how the engine interprets the pulled codes. Each stat uses
+  # its OWN universe (see demographics.py); do not cross person/household.
+  roles:
+    total_pop: "P1_001N"
+    race:
+      white: "P1_003N"
+      black: "P1_004N"
+      amind: "P1_005N"
+      asian: "P1_006N"
+      nhpi: "P1_007N"
+      other: "P1_008N"
+      two_plus: "P1_009N"
+    ethnicity:
+      hispanic: "P2_002N"
+    poverty:                        # rate = below-poverty / universe; below = ratio < 1.00
+      num: ["C17002_002E", "C17002_003E"]
+      den: "C17002_001E"
+      num_moe: ["C17002_002M", "C17002_003M"]
+      den_moe: "C17002_001M"
+    snap:                           # rate = SNAP households / total households
+      num: "B19058_002E"
+      den: "B19058_001E"
+      num_moe: "B19058_002M"
+      den_moe: "B19058_001M"
+    income_bins:                    # [B19001 estimate code, lower, upper] ($; upper null = open)
+      - ["B19001_002E", 0, 10000]
+      - ["B19001_003E", 10000, 15000]
+      - ["B19001_004E", 15000, 20000]
+      - ["B19001_005E", 20000, 25000]
+      - ["B19001_006E", 25000, 30000]
+      - ["B19001_007E", 30000, 35000]
+      - ["B19001_008E", 35000, 40000]
+      - ["B19001_009E", 40000, 45000]
+      - ["B19001_010E", 45000, 50000]
+      - ["B19001_011E", 50000, 60000]
+      - ["B19001_012E", 60000, 75000]
+      - ["B19001_013E", 75000, 100000]
+      - ["B19001_014E", 100000, 125000]
+      - ["B19001_015E", 125000, 150000]
+      - ["B19001_016E", 150000, 200000]
+      - ["B19001_017E", 200000, null]
+
 outputs:
   node_layer: "output/pipe_endpoint_nodes.gpkg"
   snap_gap_pairs: "output/snap_gap_pairs.gpkg"
@@ -185,3 +305,7 @@ outputs:
   # CSV's decision column; a later pass consumes it (qa_review pattern).
   competing_review_csv: "QC/competing_pipe_review.csv"
   competing_review_gpkg: "QC/competing_pipe_review.gpkg"
+
+  # Demographic join phase
+  demographics_csv: "output/demographics/sewershed_demographics.csv"
+  demographics_shp: "output/demographics/sewershed_demographics.shp"

@@ -1423,3 +1423,159 @@ a new city. A true out-of-sample estimate needs a held-out city (multi-city =
 future work / Phase 9 scoping). Compare: the earlier PRE-rules boundary LOO was
 0.8176 held-out / +0.007 gap; the full-rules number is higher (membership rules +
 fill add ~+0.05 median) with a marginally larger gap.
+
+---
+
+## 2026-07-09 — Meter service-area rerun with full-rules methods + RDII redelivery
+
+**Task (Grace):** rerun the 12-meter service-area estimate (originally
+2026-07-07) with the current updated methods; redeliver to RDII.
+
+**Method gap closed:** the 2026-07-07 meter runner (`run_meter_service_areas.py`)
+predated three updates already in the shipped full-rules path
+(`run_competing_review.py`, LOO median 0.875). Aligned `delineate()` to mirror it:
+- `fill_uncovered_trace` void-fill (buffer 100 ft) applied after the boundary —
+  was **absent entirely**;
+- nick gate: `border_min_cover_frac` / `border_min_cover_area_ft2` now passed to
+  `competing_pipe_check` (were defaulting **off**);
+- explicit `delaunay_max_edge_ft=500` (had relied on build_boundary's matching
+  default).
+`bridge_parts` / seam-align deliberately **excluded** (IoU-neutral, outside the
+validated path).
+
+**Verification:** rerun clean (exit 0); **0 `[membership fallback]` hits** —
+competing rules fired on all 12 meters. capture % / pipe counts / dominant basin
+**byte-identical** to the old run (trace unchanged; only boundary geometry
+changed). Two-axis `/code-review`: Spec faithful (bit-for-bit mirror of
+run_competing_review); Standards no diff regression. Fill placement outside the
+try/except confirmed correct (inside → `geom` unbound NameError on the fallback).
+
+**Result — all 12 areas grew 0.5–11.3%** (fill is additive and dominates the
+small nick-gate trims; **no trunk blowup** — TF2/NH1/NH2 within 0.7–3.8%).
+Largest relative: TF5 +11.3% (small basin, so a modest fill patch is a big
+fraction — eyeball). New areas in `output/meter_service_areas/`; delivered to
+`RDII/results/sewershed_service_areas/` (csv/xlsx/gpkg). Jul-7 deliverables
+archived to `RDII/results/sewershed_service_areas/archive/07092026/`.
+
+**Redelivery notes:**
+- `confidence` labels carried forward **unchanged** (capture-driven, and capture
+  didn't move); `area_vs_existing` recomputed from the new areas.
+- **CBO `existing_basin_acres` kept BLANK** to match the Jul-7 curation (CBO
+  traces mostly as CB1; the CBO-basin comparison is meaningless). The new run
+  *computes* 1356.7 — flagged, not injected. Grace to confirm whether CBO's
+  `MonitoringBasins` polygon is trustworthy.
+
+**Open (unchanged by the rerun — geometry only):** CBO / NC2R-2A candidate
+manhole confirms; FAO low capture (24.5%); trunk local-vs-catchment reporting
+question.
+
+**Latent code flag (separate cleanup, not fixed):** the nick-gate
+`params.get(..., 0.0)` fallbacks *disable* the gate if the config key ever goes
+missing — same untuned-default class as commit 041523d. Mirrors
+run_competing_review.py, so a fix must land in both files (or at the
+`competing_pipe_check` signature), not this runner alone; deferred because it
+would break reference-consistency for a failure that can't happen while config is
+intact.
+
+---
+
+## 2026-07-10 — Demographic join phase built (dasymetric apportionment + Census API)
+
+**Task (Grace, grilled + approved plan):** attach socioeconomic demographics to
+each sewershed and compute per-site statistics — the project's founding purpose.
+Plan file: `~/.claude/plans/iterative-twirling-pond.md`.
+
+**Scope (grilled):** race, ethnicity, income, poverty, **SNAP**, and **property
+value** — treated as *diet proxies*, since direct diet data doesn't exist below
+county level (BRFSS/USDA are county-scale). Diet-direct is out of scope.
+
+**Decision — Census API for everything, drop the NHGIS CSV.** All variables pull
+from the public-domain Census API (`src/census_api.py`): 2020 Decennial PL 94-171
+by block (P1 race, P2 ethnicity, P1_001N pop) and ACS 5-year by block-group
+(B19013+B19001 income, B17001 poverty, B19058 SNAP). **Rationale:** public-domain
+data is legally committable to the JOSS repo; the NHGIS extract carried
+no-redistribution terms. This also supplies Track B's runnable-example data.
+Property value is NOT census — it comes off the parcel layer (`PARVAL`), which is
+already inside the polygon, so it needs no apportionment.
+
+**BLOCKER — Census API now requires a key on every request.** Keyless access was
+deprecated (every probe, even state-level, returns "Missing Key"). A free key
+(https://api.census.gov/data/key_signup.html, instant) is required before the
+data pull or any live run. `resolve_api_key` reads env `CENSUS_API_KEY`, a
+`.census_api_key` file in the project root, or `inputs.census_api_key`. All code
+is built and offline-verified; only the pull + end-to-end run wait on the key.
+
+**Decision — dasymetric apportionment via `PARUSEDESC`, not `PARUSECODE`.**
+Census counts live on blocks/block-groups that straddle the boundary; each unit
+contributes in proportion to its *residential* land inside the sewershed
+(`weight = area(R∩u∩S)/area(R∩u)`), not raw area, so population isn't spread over
+parks/ROW/industrial. **the city's `PARUSECODE` is a ZONING code** (RR, RS-10, OI…)
+whose description doesn't track use — the real land use is `PARUSEDESC`
+("RES/ 1-FAMILY", "COM/ APT-GARDEN", "VACANT LAND"). Mask = desc starts "RES/" OR
+contains "APT"/"CONVERTED RESID", minus any "VAC" prefix. **78.3% of parcels
+(103,475) classed residential**; apartments (filed under COM/) correctly included,
+vacant land excluded.
+
+**Decision — universe denominators kept strictly separate** (each stat uses its
+own universe, never total population): poverty rate = below / B17001 universe;
+SNAP rate = SNAP households / total households (B19058); race/ethnicity % =
+category / decennial person total. **MOE:** decennial is a full count (no MOE);
+ACS counts propagate via root-sum-of-squares, rates via the Census proportion
+formula; **pooled median income MOE is NOT propagated** (count-RSS is invalid for
+a median) — footnoted per plan. Median income itself is pooled from the B19001
+binned distribution and interpolated (median-of-medians avoided).
+
+**Decision — freshness feature = deterministic catalog + AI drift seam.**
+`census_data.check_and_update` finds the newest vintage from the machine-readable
+catalog (data.json, keyless) and pulls only if the cache is stale/missing.
+Reproducibility: `decennial_vintage` pinned 2020; `acs5_vintage` "latest" (=2024)
+for live use, PIN to a year for a paper run. `check_drift` deterministically
+verifies requested codes still resolve in a new vintage; an optional
+`drift_resolver` (the AI seam) remaps renamed codes, hard-stopping on
+discontinued ones.
+
+**Outputs:** per-site CSV (`output/demographics/sewershed_demographics.csv`,
+dashboard-bound) + shapefile with headline fields (10-char DBF names, lab
+sharing). Input = the 24-site `output/sewershed_final.gpkg:boundary`, keyed
+`SiteID` (== manhole FACILITYID) + `tract`; both carried into outputs so the
+dashboard can join on either.
+
+**Verification (offline, no key):** all module imports; config parses (16 income
+bins); residential mask 78.3% with no VAC leakage; `pooled_median_income`,
+`apportion`/`apportion_moe`/`proportion_moe`, `dasymetric_weights`,
+`property_stats` all match hand-computed values; runner plumbing (boundary load →
+block-group dissolve to 12-digit GEOID → per-site intersection → served parcels)
+runs clean (site 17506: 61 blocks, 10 BGs, 1,542 parcels). **Pending on key:**
+live pull, per-site dry-trace against real counts, invariants, areal-vs-dasymetric
+sensitivity, drift-check test, /code-review.
+
+**Files:** `src/census_api.py`, `src/census_data.py`, `src/demographics.py`,
+`run_demographics.py`; `config.yaml` gains `census` + `demographics` sections and
+two output paths.
+
+**Runtime corrections (2026-07-10, live pull + code review):**
+- **Poverty table B17001 → C17002.** B17001 returns null at block-group level
+  (published tract+ only). Switched to C17002 (ratio of income to poverty);
+  below-poverty = C17002_002E + C17002_003E (ratio < 1.00). Engine generalized to
+  sum multi-code numerators (`apportion_codes` / `apportion_moe_codes`).
+- **Drift-check `_M` false-positive.** ACS margin-of-error codes aren't listed as
+  separate keys in `variables.json` (they're implicit companions of each `_E`);
+  the deterministic check now synthesizes `xxx_M` for every real `xxx_E` table
+  code so it stops flagging valid MOE variables as discontinued.
+- **Code review (two-axis, static):** no math bugs found (dasymetric weights,
+  proportion MOE, RSS, pooled median all traced correct); 3/4 correctness traps
+  fully honored. **One partial:** the AI drift-*resolver* arm is a built but
+  unwired seam — `check_and_update` runs deterministic-only in the CLI (no LLM
+  client in-repo). Recommendation: keep deterministic-primary (an LLM guessing
+  census variable remaps is riskier than a human confirming the reported missing
+  codes); wire a resolver later only if vintage churn makes it worth it.
+- **Note-only deviations (not fixed, by design):** property value uses a
+  recomputed geometric clip-fraction rather than the pipeline's `cp_keep` (keeps
+  the tool decoupled — consumes only boundary + parcels); property median is
+  unweighted (weighted median is hard); open-topped income bin returns its floor
+  ($200k). All within the plan's approved approximation budget.
+- **Live run result:** 24 sites, `output/demographics/sewershed_demographics.csv`
+  (34 cols) + `.shp`. Numbers internally consistent — poverty/SNAP track income
+  inversely, race varies by tract. 26532 (Tract 18.01) reports ~0 population: a
+  genuinely industrial/vacant catchment (blocks hold 89 people whose homes fall
+  outside the boundary; dasymetric mask correctly zeroes it).

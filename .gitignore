@@ -29,3 +29,6 @@ wb.html
 Thumbs.db
 .vscode/
 .idea/
+
+# Census API key (secret — never commit)
+.census_api_key
