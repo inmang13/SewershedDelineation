@@ -234,11 +234,11 @@
 
 <header>
   <h1>Network QA Flags</h1>
-  <p>SewershedDelineation · Phase 2 — the city gravity main network · 38,359 pipes total</p>
+  <p>SewershedDelineation · Phase 2 — the study area gravity main network · 38,359 pipes total</p>
 </header>
 
 <!-- Summary stats -->
-<div class="section-label">the city QA Run Results (2026-06-23)</div>
+<div class="section-label">the study area QA Run Results (2026-06-23)</div>
 <div class="stats-grid">
   <div class="stat-card">
     <div class="stat-num">1,276</div>
@@ -277,7 +277,7 @@
 
 <div class="finding-box">
   <strong>Key Finding — Large Directed Cycle</strong>
-  A 270-node strongly-connected component spans roughly 10×16 miles of the the city network. This is not a physical loop — gravity can't circulate. It's a logical cycle created by misdirected pipes stitching the real tree into a circuit. Within it: 17 pipes with invert conflicts, 9 with negative slope, 42 with no invert data. Removing the 17 uphill edges collapses it to 131 nodes, meaning the residual flips lack invert evidence and need manual review. See <code>output/large_cycle_suspects.csv</code>.
+  A 270-node strongly-connected component spans roughly 10×16 miles of the study area network. This is not a physical loop — gravity can't circulate. It's a logical cycle created by misdirected pipes stitching the real tree into a circuit. Within it: 17 pipes with invert conflicts, 9 with negative slope, 42 with no invert data. Removing the 17 uphill edges collapses it to 131 nodes, meaning the residual flips lack invert evidence and need manual review. See <code>output/large_cycle_suspects.csv</code>.
 </div>
 
 <!-- Direction flags -->
@@ -298,7 +298,7 @@
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">Pipe has a null value in the FROMMH or TOMH field, so flow direction is unknown.</div>
     <p>If the pipe also has usable invert elevations (UPSTREAMIN / DOWNSTREAM), it's marked <code>QA_STATUS = "direction_inferrable"</code> in the repaired shapefile. The graph builder (Phase 3) will recover direction from those elevations — higher invert end = upstream.</p>
-    <p>If no invert data is available, it's marked <code>QA_STATUS = "flagged"</code> and needs manual attention. the city had 76 pipes with null FROMMH and 59 with null TOMH (112 distinct flagged pipes after overlap).</p>
+    <p>If no invert data is available, it's marked <code>QA_STATUS = "flagged"</code> and needs manual attention. the study area had 76 pipes with null FROMMH and 59 with null TOMH (112 distinct flagged pipes after overlap).</p>
   </div>
 </div>
 
@@ -333,7 +333,7 @@
     <h3>Recorded slope is negative</h3>
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">The SLOPE field is &lt; 0.</div>
-    <p>Cross-checked against invert elevations. Rare (2 in the city). Often accompanies or confirms an invert conflict but can also be a data entry error in the slope field alone.</p>
+    <p>Cross-checked against invert elevations. Rare (2 in the study area). Often accompanies or confirms an invert conflict but can also be a data entry error in the slope field alone.</p>
     <p class="note">Low volume — review individually; these are likely quick fixes.</p>
   </div>
 </div>
@@ -354,7 +354,7 @@
     <h3>Near-miss endpoint that won't auto-merge</h3>
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">Two pipe endpoints are farther apart than the snap tolerance (auto-merge threshold) but closer than 2× that tolerance — in the "should be connected but isn't" band.</div>
-    <p>Sub-tolerance gaps are silently merged by the graph builder (no flag). Gaps in the band <code>(snap_tol, 2×snap_tol]</code> are flagged because they're likely real disconnections, not digitizing noise. 13 found in the city — look for pipes that appear visually connected in GIS but have a small gap.</p>
+    <p>Sub-tolerance gaps are silently merged by the graph builder (no flag). Gaps in the band <code>(snap_tol, 2×snap_tol]</code> are flagged because they're likely real disconnections, not digitizing noise. 13 found in the study area — look for pipes that appear visually connected in GIS but have a small gap.</p>
     <p class="note">Detected using a scipy cKDTree over endpoints (O(n log n)) rather than a spatial self-join, which was too slow on ~76k endpoints.</p>
   </div>
 </div>
@@ -372,7 +372,7 @@
     <h3>Small circular flow path (local flip)</h3>
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">A strongly-connected component (SCC) of ≤ <code>max_mappable_cycle_nodes</code> (default: 10) nodes is found in the directed graph.</div>
-    <p>A small cycle almost always means one or two locally misdirected pipes. Generates a zoomed PDF map page showing the cycle with flow direction arrows — quick to fix in GIS. the city had three small SCCs (4, 3, and 2 nodes).</p>
+    <p>A small cycle almost always means one or two locally misdirected pipes. Generates a zoomed PDF map page showing the cycle with flow direction arrows — quick to fix in GIS. the study area had three small SCCs (4, 3, and 2 nodes).</p>
     <p class="note">See also <code>large_cycle</code> for the pathological case.</p>
   </div>
 </div>
@@ -391,7 +391,7 @@
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">A strongly-connected component exceeds <code>max_mappable_cycle_nodes</code> — too large to map usefully on a single page.</div>
     <p>A large SCC is not a physical loop; it's a logical one created by systematically misdirected pipes. No PDF map is generated (a citywide tangle map is unreadable). Instead, <code>large_cycle_suspects.csv</code> lists all member pipes with invert/slope suspects sorted to the top — the highest-value targets for manual review.</p>
-    <p>the city's 270-node SCC is the primary instance. Will corrupt any sewershed traced through it until resolved.</p>
+    <p>the study area's 270-node SCC is the primary instance. Will corrupt any sewershed traced through it until resolved.</p>
   </div>
 </div>
 
@@ -407,7 +407,7 @@
     <h3>Subgraph not connected to the main network</h3>
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">A group of pipes forms a valid subgraph but has no path connecting it to the largest connected component.</div>
-    <p>Could indicate a genuinely separate system (a private collection system, a pressure main misclassified as gravity), a snap gap that cuts off a branch, or a data error. The flag CSV includes the component size. 345 flagged in the city — most are probably small isolated branches.</p>
+    <p>Could indicate a genuinely separate system (a private collection system, a pressure main misclassified as gravity), a snap gap that cuts off a branch, or a data error. The flag CSV includes the component size. 345 flagged in the study area — most are probably small isolated branches.</p>
     <p class="note">CSV-only. Not PDF-mapped because the volume (~345) is too high for useful review that way.</p>
   </div>
 </div>
@@ -424,7 +424,7 @@
     <h3>Manhole with no connected pipes</h3>
     <div class="trigger-label">Trigger</div>
     <div class="trigger-text">A manhole FACILITYID appears in the manholes layer but is not referenced by any pipe's FROMMH or TOMH field.</div>
-    <p>Most likely causes: access manholes or cleanouts with no associated pipe segment, manholes in areas not yet digitized, or ID mismatches between the manholes and gravity mains layers. 522 in the city — the largest single flag category but lowest operational risk (these are assets, not broken topology).</p>
+    <p>Most likely causes: access manholes or cleanouts with no associated pipe segment, manholes in areas not yet digitized, or ID mismatches between the manholes and gravity mains layers. 522 in the study area — the largest single flag category but lowest operational risk (these are assets, not broken topology).</p>
     <p class="note">CSV-only. Doesn't affect traversal unless a target manhole is one of these — which would produce a zero-result sewershed (caught by the Phase 6 <code>no_upstream_found</code> flag).</p>
   </div>
 </div>

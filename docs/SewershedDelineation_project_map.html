@@ -85,13 +85,13 @@ flowchart TD
     direction TB
     cpq["Competing-pipe QC<br/><small>done · exclude/split/buffer-assign; QC rounds 1-2</small>"]:::quest
     edits["Pipe edits + midspan splits<br/><small>done · flip/delete/extend, 26 tee splits</small>"]:::quest
-    the city["the city data Qs<br/><small>blocked · pipe 33218 interceptor artifact (1.02)</small>"]:::blocked
+    dataqs["source data Qs<br/><small>blocked · pipe 33218 interceptor artifact (1.02)</small>"]:::blocked
     review["Code review pass<br/><small>done · 2-axis; untuned default fixed, dead code cut</small>"]:::quest
     meter["Meter service-area<br/><small>done · off-line side analysis</small>"]:::quest
   end
   cpq -. "hardens" .-> memb
   edits -. "repairs" .-> gbuild
-  the city -. "gates true extent" .-> memb
+  dataqs -. "gates true extent" .-> memb
   review -. "hardened" .-> bound
 </pre>
 </div>
@@ -134,7 +134,7 @@ flowchart TD
     <tr><td>Validation + full-rules LOO</td><td class="st" style="color:#1baf7a">done</td><td>validation.py + run_fullrules_loo.py. Median IoU <b>0.875 in-sample / 0.863 LOO</b> (optimism +0.012), fold-stable (edge=500 in all 24 folds). Scores the boundary; feeds the JOSS number. Caveat: cross-validates the sel_r×edge pick only.</td></tr>
     <tr><td>Competing-pipe QC (rounds 1–2)</td><td class="st" style="color:#1baf7a">done</td><td>population_join competing check + run_competing_review batch. Hardens membership; produces contested-parcel review CSV/gpkg.</td></tr>
     <tr><td>Pipe edits + midspan splits</td><td class="st" style="color:#1baf7a">done</td><td>pipe_edits.py (flip/delete/extend, 8 applied) + pipe_splits.py (26 midspan tee splits, in-memory). Repairs graph topology; source-layer fixes on the maintainer list.</td></tr>
-    <tr><td>the city data questions</td><td class="st" style="color:#e34948">blocked</td><td>docs/the city_data_questions.md. Pipe 33218 routes the trunk interceptor into Tract 1.02 (backwards, no invert); cutting it → 1.02 IoU 0.73→0.86. Awaiting the city confirm — do not edit.</td></tr>
+    <tr><td>source data questions</td><td class="st" style="color:#e34948">blocked</td><td>docs/data_questions.md. Pipe 33218 routes the trunk interceptor into Tract 1.02 (backwards, no invert); cutting it → 1.02 IoU 0.73→0.86. Awaiting the study area confirm — do not edit.</td></tr>
     <tr><td>Code review (2-axis)</td><td class="st" style="color:#1baf7a">done</td><td>Standards + Spec parallel review of the boundary work. Fixed the untuned delaunay default (1000→500), removed dead experiment code, named magic numbers.</td></tr>
     <tr><td>Meter service-area estimation</td><td class="st" style="color:#1baf7a">done</td><td>Off-line side analysis (git 2616163) — separate from the parcel delineation line.</td></tr>
   </tbody>

@@ -54,7 +54,7 @@ pip install -r requirements.txt
 
 ## Data inputs (you supply these)
 
-The the city data used for development is **not committed** (city GIS layers are not
+The data used for development is **not committed** (municipal GIS layers are not
 redistributable). Point `config.yaml` at your own layers:
 
 | `config.yaml` key | Layer |

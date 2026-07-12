@@ -5,15 +5,15 @@ inputs:
 
   gravity_main_shapefile: "data/gravity_mains.shp"
   manholes_shapefile: "data/manholes.shp"
-  population_units_shapefile: "data/nc_the city_parcels_poly.shp"
+  population_units_shapefile: "data/parcels_poly.shp"
   population_units_crs: "EPSG:2264"   # parcels missing CRS in file — assigned on load
 
   # Census blocks — alternate population/boundary unit (statewide NC TIGER 2020).
   # Ships a .prj (EPSG:4269 geographic); reprojected to `crs` and filtered to
   # census_blocks_county_fips on load. Only needed for block/hybrid methods.
-  census_blocks_shapefile: "data/the city Blocks/tl_2021_37_tabblock20.shp"
+  census_blocks_shapefile: "data/census_blocks/tl_2021_37_tabblock20.shp"
   census_blocks_crs: "EPSG:4269"      # TIGER files are NAD83 geographic
-  census_blocks_county_fips: "063"    # the city County — filter COUNTYFP20 before use
+  census_blocks_county_fips: "063"    # study county — filter COUNTYFP20 before use
 
   # Validation set (lives in the sibling CommunityWastewaterDashboard project).
   # Only read by src/validation.py --sweep; not required for a normal run.
@@ -91,7 +91,7 @@ parameters:
   max_mappable_cycle_nodes: 10
 
   # Weakly-connected components with this many nodes or fewer are flagged as
-  # disconnected fragments. Larger ones are separate drainage basins (the city's
+  # disconnected fragments. Larger ones are separate drainage basins (this
   # network has several thousand-node components), not errors. Matches the
   # < 50 node criterion in check_sample_sites.py.
   disconnected_component_max_nodes: 50
@@ -174,7 +174,7 @@ parameters:
 # ---------------------------------------------------------------------------
 census:
   state_fips: "37"                 # North Carolina
-  county_fips: "063"               # the city County
+  county_fips: "063"               # study county
   data_dir: "data/census"          # local cache dir (created on pull)
   manifest_path: "data/census/manifest.json"
   # Vintages: decennial pinned (race/ethnicity full count). ACS "latest" chases
@@ -231,7 +231,7 @@ census:
     B19001_017E: hhinc_200k_plus
 
 demographics:
-  # Residential mask (dasymetric surface). PARUSECODE is a ZONING code in the city;
+  # Residential mask (dasymetric surface). PARUSECODE is a ZONING code in the source parcels;
   # PARUSEDESC is the actual land use.
   land_use_desc_column: "PARUSEDESC"
   residential_desc_prefixes: ["RES/"]

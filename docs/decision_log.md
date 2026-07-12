@@ -12,7 +12,7 @@
 **Rationale:** All three source layers (gravity mains, manholes, parcels) are in EPSG:2264. Parcels are missing CRS metadata in the file; assigned on load. All distance parameters (buffer, snap tolerance) are in feet to match.
 
 **Decision:** Direction encoded via FROMMH → TOMH fields (FACILITYID references), not a separate direction attribute.
-**Rationale:** That's how the city's data is structured. Graph edges are added from FROMMH to TOMH. SLOPE and invert elevation fields (UPSTREAMIN, DOWNSTREAM) are used as cross-checks for direction flags. 76 pipes have null FROMMH and 59 have null TOMH — these are flagged as missing_direction.
+**Rationale:** That's how the study area's data is structured. Graph edges are added from FROMMH to TOMH. SLOPE and invert elevation fields (UPSTREAMIN, DOWNSTREAM) are used as cross-checks for direction flags. 76 pipes have null FROMMH and 59 have null TOMH — these are flagged as missing_direction.
 
 ## 2026-06-23 — Phase 2 is QA/flag-only; real direction repair deferred to Phase 3
 
@@ -40,7 +40,7 @@ now: original / flagged / direction_inferrable.
 
 ## 2026-06-23 — Phase 2 (network QA) build & results
 
-**Result:** First full QA run on all 38,359 the city pipes produced 1,276 flags (~3.3%):
+**Result:** First full QA run on all 38,359 network pipes produced 1,276 flags (~3.3%):
 isolated_manhole 522, disconnected_component 345, invert_conflict 281, missing_direction 112,
 snap_gap 13, negative_slope 2, directed_cycle 1. (Cycle later split per-SCC; see below. Status counts
 later corrected — no pipes are truly "repaired" in Phase 2; see the QA/flag-only entry below.)
@@ -124,7 +124,7 @@ QA review confirmed that FROMMH/TOMH nulls, invert conflicts, and disconnected c
 **Decision:** Snap gap QC outputs a line layer (`output/snap_gap_pairs.gpkg`) connecting near-miss end-node pairs, not a point layer or CSV.
 **Rationale:** A line connecting the two near-miss nodes is directly interpretable in GIS — you can see exactly which pipes are almost-but-not-quite connected and judge whether the gap is a real topology break or acceptable. Distance is an attribute on the line for filtering.
 
-**Result — node layer QC:** After two-pass snap with 10 ft end-node repair, zero residual near-miss pairs remain. All snap gaps in the the city network are resolved at the geometry level. End node counts reflect the true headwaters and outlets of the system.
+**Result — node layer QC:** After two-pass snap with 10 ft end-node repair, zero residual near-miss pairs remain. All snap gaps in the study area network are resolved at the geometry level. End node counts reflect the true headwaters and outlets of the system.
 
 **Decision:** End node layer (`output/end_nodes.gpkg`) filtered from the repaired node set, not the raw pass-1 nodes.
 **Rationale:** Ensures end nodes reflect the repaired topology. Any node classified as `start_only` or `end_only` after repair is a genuine dead end, not an artifact of a snap gap.
@@ -233,7 +233,7 @@ exactly once.
 endpoints didn't merge, a degenerate `start_only` node (in_degree 0) can sit marginally closer to the
 manhole point than the real junction, which would silently return an empty trace. `resolve_target_node`
 now prefers a node with in_degree > 0 within tolerance when the nearest has none. This affected exactly
-1 of 38,235 the city manholes (51909) — rare, but a silent wrong answer, so worth the guard.
+1 of 38,235 network manholes (51909) — rare, but a silent wrong answer, so worth the guard.
 
 **Fix — FACILITYID matching (from code review):** Exact string match first (so non-numeric IDs like
 PS103 work), then an integer-normalized fallback so padded/unpadded numeric IDs ('17506' / '017506' /
@@ -326,8 +326,8 @@ on the result object collapses all of them.
 and `run_polygon_output.py`. Not extracted — Phase 7 (`run.py`) wires all phases together and is
 the right home for a shared `(res, pipes, pop)` helper. Extracting now would just be reworked then.
 
-**Provenance note (parcel layer):** `data/nc_the city_parcels_poly.shp` originates from the
-**the city County Assessor** (per the layer's `SOURCEAGNT` field on every row), normalized to a
+**Provenance note (parcel layer):** `data/parcels_poly.shp` originates from the
+**County Assessor** (per the layer's `SOURCEAGNT` field on every row), normalized to a
 standardized national parcel schema (ALTPARNO, CNTYFIPS, PARUSECODE, LANDVAL, PARVAL, …). It
 ships no `.prj`, so EPSG:2264 is declared in config. It already carries land value / use code /
 address fields, which will help the eventual ACS demographic join. There is also a pre-existing
@@ -366,7 +366,7 @@ either lowballs (accepts a bad method) or is impossible (rejects the best method
 stop for human input, not an auto-pick.
 
 **Decision:** Census blocks are a **candidate boundary unit and population unit**, not just parcels.
-Source: `data/the city Blocks/tl_2021_37_tabblock20.shp` (statewide NC TIGER 2020, EPSG:4269; filter
+Source: `data/census_blocks/tl_2021_37_tabblock20.shp` (statewide NC TIGER 2020, EPSG:4269; filter
 `COUNTYFP20 == '063'`, reproject to 2264 on load). **Rationale:** Blocks *tile* the landscape — exactly
 the "parcels leave gaps" problem — so blocks-dissolved is a plausible sweep winner, and Hill & Larsen
 2023 establishes census-block apportionment as the WBE standard for the downstream demographic join.
@@ -434,7 +434,7 @@ changing calls below. Specifics:
   which pass 2 never repairs: 7 such gaps sit INSIDE the 10 ft repair radius and were invisible to the
   old check.
 - **disconnected_component = small fragments only** (new config `disconnected_component_max_nodes`,
-  default 50, matching check_sample_sites.py). The port revealed the city is genuinely multiple large
+  default 50, matching check_sample_sites.py). The port revealed the network is genuinely multiple large
   basins — the largest weak component holds only ~27% of nodes (10,350 of 38,414; next largest 5,879,
   2,919, ...). "Not in the largest component" would tag 72% of pipes as broken; fragments <= 50 nodes
   are the actual QC signal.
@@ -689,7 +689,7 @@ endpoint). The main was digitized without being split at the tee, so
 endpoint-to-endpoint snapping could never connect the lateral: same defect
 class as fragments component_140/141 (logged 2026-07-03 as "needs a source
 pipe split"). Grace's instruction: "If there is a MH in the middle of the
-pipe, then split the pipe. For entire the city network."
+pipe, then split the pipe. For entire network."
 
 **Decision:** Split receiving pipes at midspan junctions in memory at load
 time (`pipe_splits.apply_midspan_splits`), wired into BOTH shared load paths
@@ -797,7 +797,7 @@ added (P_ONPIPE: in-trace crosses, foreign 45 ft, expects no flag); full suite
 ## 2026-07-04 — Finding (Grace): RMO monitoring basin geometry appears wrong
 
 While hand-editing the Tract 17.12 sewershed polygon (manhole 22500), Grace
-observed that the city's **monitoring basin for meter RMO** (written "RMP" in the
+observed that the study area's **monitoring basin for meter RMO** (written "RMP" in the
 request — read as RMO; RMP is not among the 15 RDII meters, RMO is — CONFIRM if
 wrong) looks wrong where it meets the 17.12 catchment.
 
@@ -807,7 +807,7 @@ three meters (ENOR/MCO/RMO) whose crosswalk to `MonitoringBasins.shp` is
 NaN-blocked, so its per-acre RDII indices can't be computed. Our geometry-first
 delineation now gives independent evidence the basin polygon itself is
 mis-drawn, which would explain the crosswalk trouble. Logged in the RDII
-decision_log too; added to the the city Water Management notification task in
+decision_log too; added to the utility notification task in
 `TASKS/tasks.md`.
 
 **Second basin (added 2026-07-04):** while editing the **Tract 16.07** polygon,
@@ -826,7 +826,7 @@ so the maintainer note is precise.
 
 Grace completed `QC/QC_Review_v2.xlsx` (10 comments) and directed: fixes must
 be **system-agnostic — built into the pipeline for any city, not hardcoded to
-the city.** Design honored: all new logic is general code; the city specifics live
+the study area.** Design honored: all new logic is general code; site specifics live
 only in inputs (`config.yaml`, the QA review CSV). Schema assumption unchanged
 (`FACILITYID` field on pipes + manholes).
 
@@ -901,7 +901,7 @@ populated. Full suite 34 passing.
   stay as source data (geometry-first; maintainer reconciles, manual_edit flags
   it). Verified 60075 no longer invert-flagged after the revert.
 - Minor: deduped the empty-result early return (`_no_edits`). Standards axis
-  confirmed no the city values hardcoded in code — the system-agnostic directive
+  confirmed no site values hardcoded in code — the system-agnostic directive
   is met.
 
 **IoU re-verified vs edited truth (2026-07-04):** after Grace's truth-polygon
@@ -1216,7 +1216,7 @@ demographic join anyway), but is explicitly NOT the near-term target.
 **Known gaps this route still must address:** (1) gravity-only / force-main
 handling scoped honestly; (2) truth-polygon provenance stated (agreement with
 expert, not ground-truth accuracy); (3) a runnable example that doesn't require
-the uncommitted the city data. Multi-city generalization is downgraded from
+the uncommitted source data. Multi-city generalization is downgraded from
 "required" to "future work" under this route.
 
 ---
@@ -1373,7 +1373,7 @@ a basin, and part counts blew up (Tract 22 -> 6 parts). Its value is negligible
 — the only large overlaps are **nested sub-basins** (3.01/22/3.02 inside 1.02,
 which Grace confirmed are correct drainage, so overlap there is intended and
 fine for demographics as distinct sampling questions) or the **3.02/33218
-interceptor** case (a the city data question, not geometry). A same-core-connected
+interceptor** case (a source data question, not geometry). A same-core-connected
 guard was added so it's safe if re-enabled for a genuine peer overlap.
 
 **Ordering fix:** `bridge_parts` now runs LAST in `run_seam_align.py` (after
@@ -1383,7 +1383,7 @@ median ~0.875** (`output/sewershed_final.gpkg`).
 
 **Correction to the earlier 2026-07-08 entry:** 3.01 and 22 draining into 1.02
 is CORRECT nesting, not a leak (Grace). The 1.02 over-inclusion is the 3.02/33218
-artifact (pending the city) plus, now reduced, the void fills. 34374 (3.01's
+artifact (pending source data) plus, now reduced, the void fills. 34374 (3.01's
 connection) is correct and stays.
 
 ---
@@ -1509,7 +1509,7 @@ is built and offline-verified; only the pull + end-to-end run wait on the key.
 Census counts live on blocks/block-groups that straddle the boundary; each unit
 contributes in proportion to its *residential* land inside the sewershed
 (`weight = area(R∩u∩S)/area(R∩u)`), not raw area, so population isn't spread over
-parks/ROW/industrial. **the city's `PARUSECODE` is a ZONING code** (RR, RS-10, OI…)
+parks/ROW/industrial. **the study area's `PARUSECODE` is a ZONING code** (RR, RS-10, OI…)
 whose description doesn't track use — the real land use is `PARUSEDESC`
 ("RES/ 1-FAMILY", "COM/ APT-GARDEN", "VACANT LAND"). Mask = desc starts "RES/" OR
 contains "APT"/"CONVERTED RESID", minus any "VAC" prefix. **78.3% of parcels

@@ -18,7 +18,7 @@ and expose it one of three ways (checked in this order):
 Only the data queries need the key; the dataset catalog (data.json) used by
 `latest_vintage` is keyless.
 
-Geography note: the the city target is state FIPS 37, county FIPS 063. Decennial
+Geography note: the study target is state FIPS 37, county FIPS 063. Decennial
 block IDs are the 15-digit GEOID (state+county+tract+block) matching the local
 TIGER `GEOID20`; ACS block-group IDs are the 12-digit prefix of that.
 """

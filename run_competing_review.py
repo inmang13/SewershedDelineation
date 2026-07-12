@@ -108,7 +108,7 @@ def main():
     # site it belongs to (cp_owner) — turning "unknown foreign main" into
     # "reassign to Tract X". A blank cp_owner means the crossing pipe is in no
     # sampled trace (a genuinely non-sampled main to investigate). General, not
-    # the city-specific: it just cross-references the traces produced this run.
+    # dataset-specific: it just cross-references the traces produced this run.
     traces, statuses = {}, []
     pidx_owner: dict = {}
     for sid in sorted(sites):

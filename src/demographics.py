@@ -47,7 +47,7 @@ def build_residential_mask(parcels, cfg) -> "gpd.GeoDataFrame":
     Filter the parcel layer to residential land, to serve as the dasymetric
     population surface.
 
-    the city's `PARUSECODE` is a ZONING code, not land use — the actual use is in
+    The source parcels' `PARUSECODE` is a ZONING code, not land use — the actual use is in
     `PARUSEDESC` ("RES/ 1-FAMILY", "COM/ APT-GARDEN", "VACANT LAND", ...). A
     parcel is residential if its description starts with one of
     `residential_desc_prefixes` (default "RES/") OR contains one of

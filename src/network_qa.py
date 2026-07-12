@@ -504,7 +504,7 @@ def _check_disconnected_components(G: nx.MultiDiGraph,
     """
     Flag SMALL weakly-connected fragments (<= max_nodes nodes).
 
-    The the city network is genuinely multiple large drainage basins — the
+    The study network is genuinely multiple large drainage basins — the
     largest weak component holds only ~27% of nodes, and several others hold
     thousands. A large component is a separate basin, not an error, so only
     small fragments (orphaned stubs, digitizing islands) are flagged. The

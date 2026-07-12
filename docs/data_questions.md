@@ -1,6 +1,6 @@
-# Questions for the city (GIS / collection-system staff)
+# Questions for the study area (GIS / collection-system staff)
 
-Data ambiguities the delineation tool surfaced that only the city can resolve
+Data ambiguities the delineation tool surfaced that only the study area can resolve
 authoritatively. Each is a specific pipe/topology question with the evidence
 that raised it. Resolve → record the answer here and apply the pipe edit in
 `QC/qa_review_decisions.csv`.
@@ -34,7 +34,7 @@ correct, or is it a digitizing artifact?
   pipes and 5,933 → 5,016 ac (truth 4,623 ac), **IoU 0.728 → 0.856**. 3.02 is
   unchanged (it was already correct; it just stops being double-claimed).
 
-**Our hypothesis (needs the city confirmation):** 33218 is either mis-digitized
+**Our hypothesis (needs the study area confirmation):** 33218 is either mis-digitized
 (true flow 29963 → 21319, i.e. the local main feeding the interceptor) or a
 spurious connection. Either way **Tract 3.02 does not drain to Tract 1.02.**
 
@@ -42,11 +42,11 @@ spurious connection. Either way **Tract 3.02 does not drain to Tract 1.02.**
 continuation), 11038, 33261, 33263, 33216/33217 (1.02's local main).
 **Map:** `output/preview_png/trunk_interceptor_junction.png`
 
-**Contrast with confirmed cases (for the city's context):**
+**Contrast with confirmed cases (for the study area's context):**
 - **33250** — an overflow pipe, already confirmed spurious and deleted
   ("pretend it doesn't exist").
 - **34374** — the analogous connection for Tract **3.01**; Grace confirmed 3.01
   *does* drain into 1.02, so 34374 is correct and was kept. 22 likewise drains
   into 1.02. 3.02 is the open one.
 
-**Status:** OPEN — awaiting the city. Do **not** edit 33218 until confirmed.
+**Status:** OPEN — awaiting the study area. Do **not** edit 33218 until confirmed.

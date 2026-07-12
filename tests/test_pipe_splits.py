@@ -1,7 +1,7 @@
 """
 Midspan-junction split tests (2026-07-03), drafted from Grace's stated intent:
-"If there is a MH in the middle of the pipe, then split the pipe. For entire
-the city network" — plus the connectivity requirement that motivated it: a
+"If there is a MH in the middle of the pipe, then split the pipe. For the entire
+network" — plus the connectivity requirement that motivated it: a
 lateral whose endpoint lands on a main's interior (the 62112 / 34720 / MH 58048
 case) must trace as part of the network after the split.
 

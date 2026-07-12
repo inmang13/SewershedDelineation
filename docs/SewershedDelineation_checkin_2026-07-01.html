@@ -112,7 +112,7 @@
 
   <ul>
     <li><b>The census-block methods lost — and that's a real finding, not a bug.</b> Blocks
-    <em>tile</em> the landscape, which was the appeal, but the city's blocks are much bigger than the
+    <em>tile</em> the landscape, which was the appeal, but the study area's blocks are much bigger than the
     actual served area, so <code>blocks_dissolve</code> and <code>hybrid</code> overshoot the truth.
     Testing it empirically (rather than assuming blocks would help) is worth a line in the writeup.
     Blocks still matter later for the <em>demographic</em> apportionment (Hill&nbsp;&amp; Larsen 2023) —
@@ -147,7 +147,7 @@
     <li><b>IoU floor = the success metric</b> — median ≥ T1 <em>and</em> ≥ N/25 sites ≥ 0.5, with T1/N
     set <em>after</em> seeing the table (this snapshot). The sweep is a hard stop for human input, not an
     auto-pick.</li>
-    <li><b>Census blocks are a candidate</b> (source: statewide NC TIGER 2020, filtered to the city
+    <li><b>Census blocks are a candidate</b> (source: statewide NC TIGER 2020, filtered to the study area
     <code>COUNTYFP20='063'</code>) — tested and beaten, per above.</li>
     <li><b>QC → GeoPackage</b> (multi-layer, network + delineation flags), <b>satellite basemap</b>
     default, <b>build-custom verdict</b> (no portable Python tool does this).</li>
@@ -157,7 +157,7 @@
   <table>
     <tr><th>Item</th><th>State</th><th>Note</th></tr>
     <tr><td>B1 boundary methods (<code>boundary.py</code>)</td><td><span class="pill p-done">done</span></td><td>4 methods, holes/parts verified</td></tr>
-    <tr><td>B2 unit generalize + radius decouple</td><td><span class="pill p-done">done</span></td><td>4,401 the city blocks load; QC ribbon preserved</td></tr>
+    <tr><td>B2 unit generalize + radius decouple</td><td><span class="pill p-done">done</span></td><td>4,401 the study area blocks load; QC ribbon preserved</td></tr>
     <tr><td>B3 validation sweep (<code>validation.py</code>)</td><td><span class="pill p-done">done</span></td><td>full sweep ran; overlay writer tested</td></tr>
     <tr><td>B4 parcels + boundary shapefiles</td><td><span class="pill p-done">done</span></td><td>17506 → 832 ac parcels / 977 ac boundary</td></tr>
     <tr><td>Thread A — QC GeoPackage</td><td><span class="pill p-done">done</span></td><td>both flag schemas, layered by type</td></tr>

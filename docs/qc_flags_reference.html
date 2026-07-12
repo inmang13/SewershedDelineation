@@ -121,7 +121,7 @@ Everything else is a <em>warning</em> — data hygiene for the GIS maintainer, s
 <h3>directed_cycle <span class="badge rr">review_required</span> <span class="count">— 1 flag</span></h3>
 <div class="row">
   <dt>Trigger</dt><dd>A small directed loop (≤ 10 nodes). Gravity flow can't circulate, so one or two pipes are digitized backwards.</dd>
-  <dt>Means</dt><dd>Any trace through the loop can walk the wrong way. the city has exactly one: pipes <code>08373 / 08374</code> (no sample site touches it).</dd>
+  <dt>Means</dt><dd>Any trace through the loop can walk the wrong way. the study area has exactly one: pipes <code>08373 / 08374</code> (no sample site touches it).</dd>
   <dt>Action</dt><dd>Flip the backwards pipe's digitized direction in the source layer.</dd>
 </div>
 </div>
@@ -175,7 +175,7 @@ Everything else is a <em>warning</em> — data hygiene for the GIS maintainer, s
 <h3>disconnected_component <span class="badge wn">warning</span> <span class="count">— 105 flags</span></h3>
 <div class="row">
   <dt>Trigger</dt><dd>A pipe fragment of ≤ 50 nodes (config <code>disconnected_component_max_nodes</code>) with no connection to any larger part of the network.</dd>
-  <dt>Means</dt><dd>Orphaned stubs or digitizing islands. <strong>Large separate components are NOT flagged</strong> — the city is genuinely many drainage basins (the largest holds only ~27% of nodes), and separate basins are normal.</dd>
+  <dt>Means</dt><dd>Orphaned stubs or digitizing islands. <strong>Large separate components are NOT flagged</strong> — the network is genuinely many drainage basins (the largest holds only ~27% of nodes), and separate basins are normal.</dd>
   <dt>Action</dt><dd>Only matters if a sample site lands on one (the pre-flight check <code>check_sample_sites.py</code> catches that — currently none do). Otherwise maintainer hygiene.</dd>
 </div>
 </div>

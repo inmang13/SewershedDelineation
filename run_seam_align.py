@@ -102,7 +102,7 @@ def main():
 
     # Optional equidistant midline split of overlapping basins (Grace 2026-07-08).
     # OFF by default: the only large overlaps are nested sub-basins (intentional)
-    # or the 3.02/1.02 interceptor question (a the city data issue, not geometry),
+    # or the 3.02/1.02 interceptor question (a source-data issue, not geometry),
     # and the sequential Voronoi split fragments large polygons. Kept behind a
     # flag for when a genuine peer-overlap case appears.
     if cfg["parameters"].get("resolve_overlaps_enabled", False):

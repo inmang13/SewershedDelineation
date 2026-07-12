@@ -232,7 +232,7 @@ plot to EPSG:3857 for tile display only (data stays 2264 on disk). `basemap_styl
 census-block inputs, validation paths, IoU-floor thresholds (deferred), new output paths.
 `pip install contextily`; `shapely>=2.0` confirmed (2.1.2).
 
-Data: census blocks supplied at `data/the city Blocks/tl_2021_37_tabblock20.shp` (statewide NC TIGER
+Data: census blocks supplied at `data/census_blocks/tl_2021_37_tabblock20.shp` (statewide NC TIGER
 2020, EPSG:4269; sibling `nhgis0002_csv/` is demographics for the deferred join).
 
 ---
@@ -266,7 +266,7 @@ shared target-resolution fn; fix `qc_flags.gpkg` layer clobbering. Prereq for th
 
 **Track B — Runnable example (gated by C).**
 - **Synthetic toy network** (Grace's call 2026-07-07): hand-built ~10–20-pipe fake sewer + parcels,
-  committed, deterministic — sidesteps the uncommitted/redistribution-restricted the city data.
+  committed, deterministic — sidesteps the uncommitted/redistribution-restricted source data.
 - One-command demo: `python run.py --config examples/toy/config.yaml` → sewershed polygon.
 
 **Track D — Validation numbers + writeup (parallel; feeds E).**
@@ -309,7 +309,7 @@ real decision into `decision_log.md`.
    all five listed defects fixed (invert check delegates to
    `graph_builder.invert_direction_conflicts`, emits `invert_conflict`/warning; snap_gap
    two-tier with corrected wording; flags keyed by pidx; single-pass component membership).
-   Plus: `disconnected_component` reframed to fragments ≤ 50 nodes (the city is multiple
+   Plus: `disconnected_component` reframed to fragments ≤ 50 nodes (the network is multiple
    real basins — largest component is only ~27% of nodes). QA rerun: 1,066 flags, all
    count changes vs baseline reconciled. See decision_log 2026-07-02.
 
@@ -361,7 +361,7 @@ real decision into `decision_log.md`.
     configured paths via `Path(...).name`; `run_qa.py:59` derives paths by string
     `.replace()`. Pick one convention (load_config resolves everything; runners use it).
 11. [ ] **`data/README.md` provenance:** source, download date, expected CRS/fields for
-    each input (the city GIS layers, parcels, TIGER blocks, NHGIS extract).
+    each input (municipal GIS layers, parcels, TIGER blocks, NHGIS extract).
 
 **P4 — hygiene & polish**
 12. [ ] Repo cleanup: delete/gitignore stray `wb.html`; add `*.lock` to `.gitignore`

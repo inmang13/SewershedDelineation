@@ -1,7 +1,7 @@
 """
 Midspan-junction pipe splitting (QC round 1 follow-up, 2026-07-03).
 
-the city's newest construction contains T-junctions digitized without splitting
+The network's newest construction contains T-junctions digitized without splitting
 the receiving main: a lateral's endpoint (usually marked by a manhole) lands on
 another pipe's *interior*, so endpoint-to-endpoint snapping can never connect
 them and the lateral's subnetwork traces as a separate component. The 62112 /
