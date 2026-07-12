@@ -237,37 +237,56 @@ Data: census blocks supplied at `data/census_blocks/tl_2021_37_tabblock20.shp` (
 
 ---
 
-### Phase 9 — JOSS-ready deliverable (target chosen 2026-07-07)
+### Phase 9 — open release, demographics-inclusive (rescoped 2026-07-12)
 
-**Goal (decision_log 2026-07-07):** a clean, documented, DOI'd GitHub repo + a JOSS software note
-+ a short rich-HTML writeup. NOT a multi-city journal paper. The citable contribution is the
-*open, validated* pipeline (IoU 0.79–0.86 vs expert manual delineation, LOO-CV, boundary-method
-sweep), not the tracing. Multi-city generalization = future work under this route.
+**Goal (decision_log 2026-07-12, supersedes 2026-07-07):** a clean, documented, **JOSS-ready**
+GitHub repo with an archived **Zenodo DOI** on the tagged release. The software is the **WBE
+end-to-end pipeline: trace → catchment → demographics** (the demographic join was built
+2026-07-10, after the original plan — its absence was staleness, not a decision; it is the
+project's founding purpose). The *validated* contribution stays the delineation core (median IoU
+0.875 in-sample / 0.863 LOO vs expert manual delineation); the demographic join ships as the
+honestly-caveated applied step — **its outputs are estimates and unvalidated** (no ground truth
+for a catchment's demographics exists). NOT a multi-city journal paper; multi-city = future work.
 
-**Fan-out (tracks by dependency; critical path C → B → E):**
+**JOSS submission itself is OPTIONAL and deferred:** citability comes from the Zenodo DOI;
+"JOSS-ready" = repo hygiene worth doing regardless. Decide on actual submission after release
+(matters mainly if the peer-reviewed line is wanted for the thesis/RDII paper).
 
-**Track A — Repo hygiene (parallel, start anytime).**
-- `LICENSE` — **MIT** (default; Grace to confirm — OSI license is a JOSS requirement).
-- `pyproject.toml` / `requirements.txt` with pinned deps (geopandas, networkx, shapely>=2, scipy,
-  matplotlib, contextily, pyyaml, openpyxl). Roadmap P3-8.
-- `README.md` — overview, install, quickstart run-order, one worked example. Roadmap P4-13.
-- `data/README.md` — provenance/CRS/fields per input. Roadmap P3-11.
-- `.gitignore` — stray `wb.html`, `*.lock`, `*.bak` (e.g. the leftover
-  `QC/competing_pipe_review_pre_rerun_20260706.csv.bak`). Roadmap P4-12.
+**Figures policy (Grace, 2026-07-12):** de-identified screenshots of real results are allowed in
+docs/writeup — **no basemap, no Asset/manhole IDs, no data files online**. The toy network remains
+the *runnable* demo; screenshots show, toy runs.
 
-**Track F — Tests + CI (parallel; feeds A's CI).**
-- Synthetic 5-pipe regression suite: snap edge cases, false headwater, self-loop, 2-node SCC,
-  empty trace, boundary methods on toy geometry. Roadmap P3-9.
-- GitHub Actions running `pytest` on push.
+**Fan-out (tracks by dependency; critical path B → E):**
 
-**Track C — Phase 7 unified `run.py` (the spine).** See Phase 7 above + P2 items 4/6:
-config → QA → graph → trace → membership → boundary → flags; single + multi-site; extract one
-shared target-resolution fn; fix `qc_flags.gpkg` layer clobbering. Prereq for the JOSS example.
+**Track A — Repo hygiene (partially done).**
+- [x] `requirements.txt` + `README.md` — DONE 2026-07-12 (commit 97d1e25).
+- [x] `.gitignore` cleanup — DONE 2026-07-12 (6c6be56).
+- [ ] `LICENSE` — **MIT** (default; Grace to confirm — OSI license is a JOSS requirement).
+- [ ] `pyproject.toml`.
+- [ ] `data/README.md` — provenance/CRS/fields per input (Grace supplies sources/dates).
 
-**Track B — Runnable example (gated by C).**
+**Track F — Tests + CI. ✓ DONE 2026-07-12** (commit b817cfa): 14 intent-based tests
+(traversal, boundary, run.py; 60 total green) + GitHub Actions pytest on push. CI unverified
+until first push (geo-stack install on ubuntu-latest). Demographics tests moved to Track G.
+
+**Track C — Unified `run.py` spine. ✓ DONE 2026-07-12** (commit d34ead4, equivalence-gated:
+24/24 boundaries identical to the validated output, worst symdiff 0.0000 ft²).
+
+**Track B — Runnable example (unblocked; delineation-only by design).**
 - **Synthetic toy network** (Grace's call 2026-07-07): hand-built ~10–20-pipe fake sewer + parcels,
   committed, deterministic — sidesteps the uncommitted/redistribution-restricted source data.
 - One-command demo: `python run.py --config examples/toy/config.yaml` → sewershed polygon.
+- **Does NOT cover demographics** (needs real FIPS geography + Census key — Grace's call
+  2026-07-12: no fake census mini-cache; demographics demos via Track G's walkthrough instead).
+
+**Track G — Demographics packaging (NEW 2026-07-12).**
+- `tests/test_demographics.py` — intent-based tests for the pure apportionment math
+  (`dasymetric_weights`, `apportion`/`apportion_moe`, `proportion_moe`, `pooled_median_income`,
+  `property_stats`) against hand-computed values. CI-safe (no data/API).
+- `docs/demographics_walkthrough.md` — exact commands, config excerpts, Census-key setup,
+  de-identified result screenshots per the figures policy.
+- README caveat: demographic outputs are unvalidated estimates (dasymetric apportionment per
+  Hill & Larsen 2023).
 
 **Track D — Validation numbers + writeup (parallel; feeds E).**
 - [x] **Re-sweep + full-rules LOO — DONE 2026-07-08** (`run_fullrules_loo.py`).
@@ -276,19 +295,55 @@ shared target-resolution fn; fix `qc_flags.gpkg` layer clobbering. Prereq for th
   cross-validates the sel_r×edge pick only — thresholds/method are hand-fit and
   frozen, so this is a stability result, not out-of-sample generalization (needs
   a held-out city). See decision_log 2026-07-08.
-- Rich-HTML writeup: method, validation, boundary-method sweep, results, figures.
+- Rich-HTML writeup: method, validation, boundary-method sweep, results, figures
+  (de-identified screenshots per the figures policy above).
 - Honest scoping paragraphs: **truth = agreement with expert manual delineation, not ground-truth
   accuracy** (state who drew the polygons); **gravity-only** — force-main-fed subbasins undercounted
-  (the FAO/meter case is the live example).
+  (the FAO/meter case is the live example); **demographics = unvalidated estimates** (no
+  catchment-demographic ground truth exists).
 
-**Track E — JOSS artifacts (final; needs A/B/C/D).**
-- `paper/paper.md` (~600 words: statement of need) + `paper.bib`.
-- Zenodo integration → archived **DOI** on tagged release.
+**Track E — Release artifacts (final; needs A/B/D/G).**
+- `CITATION.cff` + `.zenodo.json`; Zenodo integration → archived **DOI** on tagged release.
+- `paper/paper.md` (~600 words: statement of need, framed per the rescope — end-to-end WBE
+  pipeline, validated delineation core) + `paper.bib`. Written regardless; submitted only if
+  Grace opts into JOSS later.
 - Community docs: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates.
 - Author list / affiliations / ORCID.
 
-**Status 2026-07-07:** planned, no tracks spawned yet — Grace drives execution. Open confirms:
-license (MIT?), author list.
+**Status 2026-07-12:** C and F done; A partial. Next: G (tests + walkthrough), then B (toy
+example), then remaining A, D writeup, E artifacts. Open confirms: license (MIT?), author list,
+data provenance for `data/README.md`.
+
+---
+
+### Post-release — QA flag-classification rework (Grace's deep-dive; NOT Phase 9)
+
+Scoped out of the release on 2026-07-12 (ship QA as-is with honest docs). The repair machinery
+(`qa_review.py` / `pipe_edits.py` / `pipe_splits.py`) ships regardless — `load_graph_from_config`
+applies the decisions CSV on every delineation run — so this rework targets the flag-*emission*/
+triage side. Starting requirements, from the 2026-07-12 code audit:
+
+- **Severity is a hard-coded literal per check** (`network_qa.py:101-112` dispatch) — no scoring,
+  no confidence, two fixed strings. Severity does not track actionability (tier-2 `snap_gap` is
+  review_required but ~all resolved as non-issues; `disconnected_component` is warning but every
+  reviewed one needed human judgment).
+- **~85% of flags are by-design non-actionable bulk** (last reviewed run: isolated_manhole 522,
+  invert_conflict 267, missing_direction 112 — all zero reviewer attention), hidden from the PDF
+  but still drowning the CSV.
+- **snap_gap ran ~1/44 true-positive** by Grace's own review comments — the one type that draws
+  human effort is almost all false alarms.
+- **`component_<i>` IDs are unstable across runs** (`qa_review.py:24-27`), forcing the
+  proximity-fallback machinery just to keep decisions attached.
+- **None of the 11 `_check_*` functions has a direct unit test** (repair modules are tested;
+  emission/severity logic is not).
+- **`gravity_mains_repaired.shp` is consumed by no code** — human/GIS artifact only; consider
+  dropping or documenting as such.
+- **User-input burden:** 68 hand-authored decision rows for one network; `snap` rows require a
+  GIS round-trip to read gap-midpoint x/y. Reducing this (e.g. auto-suggested decisions, better
+  pre-filtering) is the payoff target.
+
+A truth-set exists to build on: `QC/qa_review_decisions.csv` + the reviewed flags CSV are
+labeled data for what a human actually did with each flag type.
 
 ---
 

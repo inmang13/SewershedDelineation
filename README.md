@@ -111,6 +111,31 @@ one of these ways (checked in order):
 
 ---
 
+## Network QA — scope and limitations
+
+`--qa-only` audits the network with eleven checks (direction conflicts, snap gaps,
+cycles, disconnected fragments, isolated manholes, …). Know what you're getting:
+
+- **Flags are conservative, fixed-threshold heuristics.** Expect volume: several flag
+  types (`isolated_manhole`, `missing_direction`, `invert_conflict`) are
+  *annotation-only* by design — they document data-quality issues the tracer already
+  handles geometrically and rarely need action. They are excluded from the PDF maps
+  for exactly that reason but still dominate the CSV.
+- **Severity (`warning` / `review_required`) is a fixed label per check type**, not a
+  confidence score — it does not reliably rank which flags deserve your time. On the
+  development network, most `review_required` snap gaps turned out to be odd-but-real
+  pipe layouts, not errors.
+- **Human review is a file-based loop.** Decisions go in
+  `QC/qa_review_decisions.csv` (verbs: `snap`, `flip`, `delete`, `extend`,
+  `resolved`, `keep`, plus comments). Confirmed repairs are re-applied **in memory on
+  every run** — delineation and QA both read this file; the source shapefiles are
+  never modified.
+
+Smarter flag triage is on the roadmap as post-release work (see
+`docs/roadmap.md`).
+
+---
+
 ## Validation
 
 The 24 catchments were scored against expert hand-delineated truth polygons using
@@ -120,7 +145,7 @@ The 24 catchments were scored against expert hand-delineated truth polygons usin
   (optimism gap +0.012, fold-stable).
 - **24 / 24 sites ≥ 0.5.**
 
-**Two honest caveats:**
+**Three honest caveats:**
 
 1. **Truth = agreement with expert manual delineation, not ground-truth accuracy.**
    The reference polygons were drawn by hand by a domain expert; IoU measures how
@@ -129,6 +154,13 @@ The 24 catchments were scored against expert hand-delineated truth polygons usin
    upstream lift station / force main is not reached by the gravity trace and is
    undercounted. (A lift station *at* the sampling point is fine — it's the terminal
    end of a gravity basin and traces normally.)
+3. **Demographic outputs are unvalidated estimates.** The catchment polygons are
+   validated (above); the demographic numbers apportioned into them are not — no
+   ground truth exists for the demographics of a sewershed's contributing
+   population. The method is standard dasymetric census apportionment (residential
+   parcels as the population surface, after Hill & Larsen 2023), with Census-rule
+   margins of error where propagation is valid. Treat the outputs as estimates
+   with stated uncertainty, not measurements.
 
 ---
 

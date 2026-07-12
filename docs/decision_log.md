@@ -1625,3 +1625,53 @@ PR (keeps this change off the paper-number path). **P2-7 NOT implemented — sta
 (a lift station at the sampling point traces normally). A naive pumped guard would
 reintroduce it. Left to Grace: drop it, or redefine as the genuine gravity-only limitation
 (force-main-fed subbasins undercounted — a network-crossing detector, larger scope).
+
+## 2026-07-12 (pm) — Phase 9 rescoped: demographics in scope, JOSS submission optional, QA rework deferred post-release
+
+**Trigger (Grace):** stepped back to re-examine the Phase 9 decision — "what is JOSS, why
+are we not adding the demographic layer?" Audit confirmed the demographic phase was built
+2026-07-10, three days AFTER the Phase 9 plan (2026-07-07): its absence from the release
+scope was **staleness, not a decision**. Five decisions locked:
+
+**1. Demographics joins the release scope.** The tool ships as the WBE end-to-end pipeline
+(trace → catchment → demographics) — the demographic join is the project's founding purpose;
+shipping only the delineation would ship the means and omit the point. Framing split: the
+*validated* contribution stays the delineation core (IoU 0.875 / LOO 0.863 vs expert manual);
+demographics is the honestly-caveated applied step — **outputs are estimates, unvalidated**
+(no catchment-demographic ground truth exists; standard dasymetric apportionment per
+Hill & Larsen 2023). What code ships ≠ where the paper claims novelty. New Track G:
+pure-math tests + walkthrough (the phase had zero tests and no example).
+
+**2. Figures policy.** De-identified screenshots of real results are allowed in docs/writeup:
+**no basemap, no Asset/manhole IDs, no data files online.** The toy network remains the
+runnable demo — screenshots show real output, toy is what a stranger can execute.
+
+**3. JOSS submission is optional, deferred.** Citability = Zenodo DOI on a tagged release
+(no journal needed). "JOSS-ready" = repo hygiene worth doing regardless; the actual
+submission (lightweight open review, weeks-to-months) only adds the peer-reviewed line —
+mainly valuable if cited in the thesis/RDII paper. Build to ready, mint the DOI, decide later.
+
+**4. QA ships as-is with honest docs; the flag-classification rework is a NEW post-release
+track.** Grace wanted to deep-dive the network diagnostics ("lots of user input, poor flag
+classification") and asked include-vs-keep-private. Code audit settled it: **keep-private is
+not possible** — the repair machinery (qa_review/pipe_edits/pipe_splits + decisions CSV) is
+welded into `load_graph_from_config` (graph_builder.py:162-196), which every delineation run
+uses. Only flag *emission* is separable. Both of Grace's complaints verified concretely:
+severity is a hard-coded literal per check (no scoring); ~85% of flags are by-design
+non-actionable bulk (isolated_manhole 522 / invert_conflict 267 / missing_direction 112 —
+zero reviewer attention); snap_gap ran **~1/44 true-positive** by Grace's own review comments;
+68 hand-authored decision rows incl. GIS round-trips for snap x/y. Blocking the release on an
+open-ended, truth-set-less rework was rejected; the audit findings are seeded in the roadmap
+as the rework's starting requirements, and `QC/qa_review_decisions.csv` is noted as labeled
+training/truth data for it.
+
+**5. Demographics demo = walkthrough + screenshots, no fake census mini-cache.** The phase
+cannot run on the toy network (live FIPS 37/063 geography, real GEOID joins, API key).
+Building a synthetic census cache (fake GEOIDs + toy blocks + manifest plumbing) was rejected
+as days of work for marginal value now that screenshots are allowed. Toy example stays
+delineation-only; `docs/demographics_walkthrough.md` documents the real-geography run.
+
+**Files:** roadmap Phase 9 rewritten (tracks A–G + post-release QA track); this entry.
+Execution this pass: roadmap/log → `tests/test_demographics.py` → README QA-limitations →
+walkthrough skeleton. Still Grace's: LICENSE confirm (MIT?), author list/ORCID, data
+provenance, P2-7 drop-or-redefine.
