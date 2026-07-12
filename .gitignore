@@ -20,6 +20,7 @@ env/
 scratchpad/
 *.tmp
 *.log
+*.bak
 
 # Stray scratch file (roadmap P4 item 12)
 wb.html

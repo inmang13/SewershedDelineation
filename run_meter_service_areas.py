@@ -2,8 +2,10 @@
 Meter service-area estimation (one-off analysis, 2026-07-07).
 
 For a list of flow-meter locations (meter name + estimated manhole FACILITYID),
-run the production delineation (trace -> parcel membership -> morph_close boundary)
-and report an estimated service-area polygon + area for each. No hand-drawn truth
+run the production full-rules delineation (trace -> parcel membership ->
+competing-pipe exclude/split/buffer-assign -> delaunay boundary ->
+fill_uncovered_trace, matching run_competing_review.py) and report an estimated
+service-area polygon + area for each. No hand-drawn truth
 exists for these meters, so the honesty check is the manhole MONITORBAS label:
 
   basin_capture_%  of the manholes labeled with the meter's EXPECTED basin, the
@@ -50,7 +52,7 @@ from population_join import (                                      # noqa: E402
     load_units, assign_population_units, competing_pipe_check,
     split_border_contested, assign_remaining_by_buffer,
 )
-from boundary import build_boundary                                # noqa: E402
+from boundary import build_boundary, fill_uncovered_trace         # noqa: E402
 
 SQFT_PER_ACRE = 43560.0
 
@@ -77,6 +79,11 @@ def delineate(G, cfg, index, parcels, ignore_pidx, manhole_id):
     sel_r = params["selection_radius_ft"]
     method = params["boundary_method"]
     close_ft = params["close_radius_ft"]
+    # Align with the shipped full-rules path (run_competing_review.py): pass the
+    # tuned delaunay edge, the nick-gate floors, and apply fill_uncovered_trace.
+    max_edge_ft = params.get("delaunay_max_edge_ft", 500.0)
+    fill_uncov = params.get("fill_uncovered_enabled", True)
+    fill_uncov_buf = params.get("fill_uncovered_buffer_ft", 100.0)
 
     cfg["inputs"]["manhole_id"] = str(manhole_id)
     cfg["inputs"]["manhole_coordinate"] = None
@@ -97,6 +104,8 @@ def delineate(G, cfg, index, parcels, ignore_pidx, manhole_id):
             pipes_g, res.pidx_list, served, sel_r,
             border_ring_ft=params.get("border_ring_ft", 75.0),
             border_min_expose=params.get("border_min_expose", 0.10),
+            border_min_cover_frac=params.get("border_min_cover_frac", 0.0),
+            border_min_cover_area_ft2=params.get("border_min_cover_area_ft2", 0.0),
             ignore_pidx=ignore_pidx)
         kept = ann[ann["cp_excl"] == 0]
         split = split_border_contested(kept, pipes_g, res.pidx_list, sel_r, cfg,
@@ -112,7 +121,12 @@ def delineate(G, cfg, index, parcels, ignore_pidx, manhole_id):
     geom = build_boundary(for_boundary, method,
                           served_union=(None if for_boundary.empty
                                         else for_boundary.geometry.union_all()),
-                          close_ft=close_ft)
+                          close_ft=close_ft, delaunay_max_edge_ft=max_edge_ft)
+    # Patch voids the parcel boundary missed but in-trace pipes cross (the
+    # 2026-07-06 void-fill update). in_pipes = the traced mains only.
+    if geom is not None and fill_uncov:
+        in_pipes = pipes_g.iloc[sorted(set(res.pidx_list))]
+        geom = fill_uncovered_trace(geom, in_pipes, fill_uncov_buf)
     return {
         "status": "ok",
         "res": res,
