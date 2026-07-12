@@ -1579,3 +1579,49 @@ two output paths.
   inversely, race varies by tract. 26532 (Tract 18.01) reports ~0 population: a
   genuinely industrial/vacant catchment (blocks hold 89 people whose homes fall
   outside the boundary; dasymetric mask correctly zeroes it).
+
+## 2026-07-12 — Phase 7 `run.py` production spine (equivalence-gated); P2-4/5/6 resolved, P2-7 flagged stale
+
+**Task:** turn the pile of `run_*.py` scripts into one production entry point (the
+Phase-9/JOSS credibility gap), folding in the P2 correctness items where safe.
+
+**Decision — thin `run.py`, NOT a `delineate_site()` extraction (yet).** The headline
+number (median IoU 0.875 / 0.863 LOO) rides on `run_competing_review.py` →
+`run_seam_align.py`. Extracting a shared delineation fn and repointing those validated
+runners at it in the same change would put the paper number on an untested refactor.
+Chosen split: `run.py` *reuses* the existing phase functions in a fresh multi-site loop
+(a faithful, deliberate replica of `run_competing_review.py`'s per-site sequence),
+leaving the validated runners untouched. The DRY extraction (collapse all 4 copies,
+migrate the batch callers off `cfg` mutation) is a follow-up PR where each runner is
+re-run + re-quoted individually. "New feature" and "refactor that could move the number"
+stay separate, revertible steps (advisor's call, taken).
+
+**Structure.** Per site: `trace_manhole` (guarded resolver) → `assign_population_units`
+→ `competing_pipe_check` → drop `cp_excl` → `split_border_contested` →
+`assign_remaining_by_buffer` → drop `cp_asgn=="exclude"` → `build_boundary` (delaunay) →
+`fill_uncovered_trace`. Then a **cross-site barrier** (seam alignment needs every
+boundary at once): `align_seams` → `resolve_overlaps` (config-gated, off) →
+`bridge_parts` (last). Writes `output/sewershed_final.gpkg:boundary` (the layer
+`run_demographics.py` consumes) + `flags.csv` + `qc_flags.gpkg`, all sites one pass.
+Modes: single (config) / `--sites` / `--sites-file` (x/y coords or id column) /
+`--qa-only` (delegates to `run_qa.py`). Truth-free — IoU is not needed to delineate.
+
+**Equivalence gate (the reason to trust it).** `tmp/gate.py` traced the 24 validation
+sites through `run.py` and diffed each boundary against the committed
+`sewershed_final.gpkg`: **all 24 geometrically identical, worst symmetric-difference
+0.0000 ft².** So `run.py` is a proven-equivalent spine and the validated IoU is provably
+untouched. The gate also caught a real bug: a `--sites-file` with zero-padded FACILITYIDs
+("02201") was silently corrupted to `2201.0` by pandas type inference — fixed by reading
+the sites CSV `dtype=str`.
+
+**P2 items.** P2-5 done (multi-site runner + explicit `target` param on
+`trace_manhole`/`resolve_target_node`, additive/backward-compatible, kills the per-site
+`cfg` mutation). P2-6 done (single-pass write + `_clear_delineation_layers` preserves
+`net_*`, drops stale `delin_*`). P2-4: **proven no-op** — both resolvers pick the identical
+node + `pidx_list` on all 24 sites (`tmp/resolver_diff.py`); `run.py` uses the guarded
+resolver natively, so the fix to `validation.trace_sites` is deferred to the extraction
+PR (keeps this change off the paper-number path). **P2-7 NOT implemented — stale premise:**
+"a pumped target produces a wrong polygon" is the exact error corrected on 2026-07-02
+(a lift station at the sampling point traces normally). A naive pumped guard would
+reintroduce it. Left to Grace: drop it, or redefine as the genuine gravity-only limitation
+(force-main-fed subbasins undercounted — a network-crossing detector, larger scope).

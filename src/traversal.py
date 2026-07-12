@@ -79,23 +79,34 @@ class TraversalResult:
 # Target resolution
 # ---------------------------------------------------------------------------
 
-def resolve_target_node(G, cfg, manholes: gpd.GeoDataFrame = None, index=None):
+def resolve_target_node(G, cfg, manholes: gpd.GeoDataFrame = None, index=None,
+                        target=None):
     """
-    Resolve the configured target (manhole_id or coordinate) to a graph node.
+    Resolve a target (manhole_id or coordinate) to a graph node.
 
     Returns (node_id, (x, y), snap_dist_ft, source, source_value).
     Raises TargetResolutionError if the target can't be matched within tolerance.
 
     `index` (a NodeIndex) may be passed in to avoid rebuilding the KD-tree when
     tracing many targets against one graph; it is built on demand otherwise.
+
+    `target` gives the target explicitly as ("manhole_id", value) or
+    ("coordinate", [x, y]); a multi-site runner passes it per site instead of
+    mutating cfg["inputs"]. When None, the target is read from
+    cfg["inputs"].manhole_id / manhole_coordinate (single-run behaviour).
     """
     params  = cfg["parameters"]
     inputs  = cfg["inputs"]
     if index is None:
         index = build_node_index(G)
 
-    mh_id    = inputs.get("manhole_id")
-    mh_coord = inputs.get("manhole_coordinate")
+    if target is not None:
+        kind, value = target
+        mh_id    = value if kind == "manhole_id" else None
+        mh_coord = value if kind == "coordinate" else None
+    else:
+        mh_id    = inputs.get("manhole_id")
+        mh_coord = inputs.get("manhole_coordinate")
 
     if mh_id:
         if manholes is None:
@@ -207,9 +218,16 @@ def traverse_upstream(G: nx.MultiDiGraph, target_node):
     return edges, contributing_nodes, max_depth
 
 
-def trace_manhole(G, cfg, manholes: gpd.GeoDataFrame = None, index=None) -> TraversalResult:
-    """Resolve the configured target and trace its upstream network end to end."""
-    node, xy, dist, source, source_value = resolve_target_node(G, cfg, manholes, index)
+def trace_manhole(G, cfg, manholes: gpd.GeoDataFrame = None, index=None,
+                  target=None) -> TraversalResult:
+    """Resolve the target and trace its upstream network end to end.
+
+    `target` is passed through to resolve_target_node: ("manhole_id", value) or
+    ("coordinate", [x, y]) to trace a specific site without mutating cfg; None
+    reads the target from cfg["inputs"] (single-run behaviour).
+    """
+    node, xy, dist, source, source_value = resolve_target_node(
+        G, cfg, manholes, index, target=target)
     edges, nodes, max_depth = traverse_upstream(G, node)
     return TraversalResult(
         target_node=node, target_xy=xy, snap_dist_ft=dist,

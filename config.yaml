@@ -65,6 +65,7 @@ parameters:
   boundary_method: "delaunay"       # morph_close | blocks_dissolve | hybrid | concave | block_fill | delaunay
   delaunay_max_edge_ft: 500.0       # max Delaunay bridge edge (ft); delaunay only. 500 beat 750/1000/1500 pre-rules AND post-rules (0.8768 full-rules median, 2026-07-07)
   bridge_parts_max_gap_ft: 800.0    # seam-align post-pass: close radius for stitching a site's disjoint parts; fills the full corridor for pinch gaps up to ~this wide (Tract 1.02 highway = 717 ft). Between-parts only. 0 disables.
+  seam_align_tol_ft: 50.0           # run.py cross-site pass: snap tolerance for coinciding shared borders between neighbouring sewersheds (was run_seam_align.py's --tol default)
   # Fill areas the trace serves but the parcel boundary missed: buffer in-trace
   # pipe not covered by the polygon, union in, fill the closed holes. Grows only
   # along this basin's own mains (foreign-only voids left open). 2026-07-08.

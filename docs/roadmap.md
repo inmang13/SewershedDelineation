@@ -136,10 +136,28 @@ Test: DONE — site 17506 → 832 ac, 1,227 parcels, fires `large_catchment` onl
 
 ---
 
-### Phase 7 — Main script integration `run.py`
-Wire all phases. Read config → QA/repair → build graph → traverse → assign units → polygon → flags.
-CLI: `python run.py --config config.yaml`
-Option: `python run.py --config config.yaml --qa-only` to run just the network QA without delineating.
+### Phase 7 — Main script integration `run.py` ✓ COMPLETE (2026-07-12)
+
+**Built as the multi-site production spine** (roadmap P2-5). One command runs the shipped
+full-rules delineation for one site or a whole list: per site `trace → membership →
+competing exclude/split/buffer-assign → delaunay → fill_uncovered`, then a single cross-site
+pass `align_seams → resolve_overlaps(opt) → bridge_parts`, then writes
+`output/sewershed_final.gpkg:boundary` (the layer `run_demographics.py` consumes) + `flags.csv`
++ `qc_flags.gpkg` in one pass. **Subsumes the old two-step `run_competing_review.py` →
+`run_seam_align.py` production chain.**
+
+**Equivalence-gated (2026-07-12): run.py reproduces the committed `sewershed_final.gpkg`
+24 boundaries geometrically identical (worst symmetric-difference 0.0000 ft²)** — so the
+validated median IoU 0.875 / 0.863 LOO is provably untouched. Thin reuse of the existing
+phase functions; the per-site loop is a faithful replica of `run_competing_review.py`'s
+(extraction into a shared `delineate_site()` deferred to a follow-up PR — see decision_log
+2026-07-12).
+
+CLI:
+- `python run.py --config config.yaml` — single site from `inputs.manhole_id` / `manhole_coordinate`
+- `python run.py --config config.yaml --sites 17506,09289` — explicit FACILITYIDs
+- `python run.py --config config.yaml --sites-file sites.csv` — CSV (x/y coords or an id column)
+- `python run.py --config config.yaml --qa-only` — network QA only (delegates to `run_qa.py`)
 
 ---
 
@@ -296,23 +314,40 @@ real decision into `decision_log.md`.
    count changes vs baseline reconciled. See decision_log 2026-07-02.
 
 **P2 — correctness/integrity fixes before multi-site use**
-4. [ ] **Unify target resolution.** `validation.trace_sites` (`validation.py:149`) uses
-   bare `nearest_node` without the false-headwater guard in `resolve_target_node`
-   (`traversal.py:139`) — sweep and production resolve targets differently. Extract one
-   shared resolution function.
-5. [ ] **Redefine Phase 7 as the multi-site runner** (not a single-manhole `run.py`).
-   Loop over a site list → one boundary + flag set per site. ~80% extractable from
-   `validation.py`'s batch trace (and now `run_competing_review.py`'s loop). This IS
-   the actual use case (25 sites). Include: let `trace_manhole` take an explicit
-   target instead of batch callers mutating `cfg["inputs"]` per site
-   (run_competing_review.py does this today — works, but fragile).
-6. [ ] **Fix `qc_flags.gpkg` layer clobbering.** Re-running `run_polygon_output.py` for a
-   second manhole overwrites the prior site's `delin_*` layers; a clean run leaves stale
-   flags in place (`run_polygon_output.py:85`). Harmless single-site, data-integrity bug
-   once multi-site.
-7. [ ] **Pumped-site guard in the production path.** Nothing detects a pumped/lift-station
-   target (e.g. 30804) — it produces a confidently wrong polygon. Add a known-pumped-sites
-   list in config that hard-flags (`review_required`) or refuses.
+4. [~] **Unify target resolution — evidence gathered, fix deferred (2026-07-12).**
+   `validation.trace_sites` uses bare `nearest_node`; production `resolve_target_node`
+   has the false-headwater guard. **Discriminating check (`tmp/resolver_diff.py`): both
+   resolvers pick the identical node AND identical `pidx_list` for all 24 validation
+   sites** — no false-headwater junction among them, so unifying validation onto the
+   guarded resolver is a *proven no-op* on the current data and cannot move the validated
+   IoU. New `run.py` uses the guarded resolver natively (correct by construction), so the
+   sweep/production split no longer affects production. The actual edit to
+   `validation.trace_sites` is left for the `delineate_site()` extraction PR (where the
+   sweep is re-run anyway), to keep this change off the paper-number code path.
+5. [x] **Redefine Phase 7 as the multi-site runner — DONE (2026-07-12).** `run.py` loops a
+   site list → one boundary + flag set per site (see Phase 7 above). `trace_manhole` /
+   `resolve_target_node` now take an explicit `target` (`("manhole_id", v)` or
+   `("coordinate", [x,y])`) so `run.py` passes it per site with **no `cfg["inputs"]`
+   mutation** (additive, backward-compatible — existing callers unchanged). Batch callers
+   (`run_competing_review.py` etc.) still mutate cfg; migrating them is part of the
+   extraction PR.
+6. [x] **Fix `qc_flags.gpkg` layer clobbering — DONE (2026-07-12).** `run.py` writes all
+   sites' delineation flags in a **single pass**, so the per-site re-run clobber cannot
+   occur. Cross-invocation stale-layer case handled by `_clear_delineation_layers`: drops
+   old `delin_*` layers (preserving `net_*` QA layers from `run_qa`) before the fresh
+   write. The original bug in `run_polygon_output.py:85` (single-site path) is unfixed but
+   now superseded by `run.py` as the production entry point.
+7. [!] **Pumped-site guard — NOT implemented; premise is stale (flagged 2026-07-12).** The
+   item's rationale ("a pumped/lift-station target produces a confidently wrong polygon")
+   is the *exact wrong premise the project already corrected and signed off* — see the
+   2026-07-02 domain-rule correction (`CLAUDE.md`, `validation.py:19-20`): a lift station
+   at the sampling point is a terminal end of a gravity basin and traces normally (30804's
+   gravity trace lands in the correct basin). A naive "target is pumped → flag/refuse"
+   guard would re-introduce that error. **Decision for Grace:** either (a) drop this item,
+   or (b) redefine it as the genuine residual — a *force-main-fed subbasin* upstream is
+   silently undercounted (the gravity-only limitation, already a Track-D honest-scoping
+   caveat and the live meter/FAO case). That is a network-crossing detector, not a
+   per-target lookup, and is much larger scope.
 
 **P3 — reproducibility & maintainability**
 8. [ ] **`requirements.txt`** (geopandas, networkx, shapely>=2, scipy, matplotlib,
