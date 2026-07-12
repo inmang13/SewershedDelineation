@@ -40,7 +40,7 @@ spurious connection. Either way **Tract 3.02 does not drain to Tract 1.02.**
 
 **Related pipes:** 11032 (trunk interceptor), 11031 (interceptor
 continuation), 11038, 33261, 33263, 33216/33217 (1.02's local main).
-**Map:** `output/preview_png/trunk_interceptor_junction.png`
+**Map:** `output/preview_png/interceptor_junction.png`
 
 **Contrast with confirmed cases (for the study area's context):**
 - **33250** — an overflow pipe, already confirmed spurious and deleted
