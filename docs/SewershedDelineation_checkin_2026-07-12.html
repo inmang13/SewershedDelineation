@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SewershedDelineation — Check-in 2026-07-12</title>
+<style>
+  :root{
+    --bg:#fbfaf7; --card:#ffffff; --ink:#1c1c1e; --mut:#5f5f66; --line:#e5e2da;
+    --accent:#1f6f5c; --accent-soft:#e4f0ea; --warn:#b4530a; --warn-soft:#f8ebde;
+    --pass:#1f7a45; --pass-soft:#e2f2e6; --code:#f2efe8; --link:#1f6f5c;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16171a; --card:#1f2125; --ink:#eceae4; --mut:#a2a1a8; --line:#31343a;
+      --accent:#5cc4a5; --accent-soft:#1c3630; --warn:#e6903f; --warn-soft:#3a2c1c;
+      --pass:#63c98a; --pass-soft:#1b3325; --code:#2a2d33; --link:#5cc4a5;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 22px 80px}
+  header{border-bottom:2px solid var(--accent);padding-bottom:16px;margin-bottom:8px}
+  h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.01em}
+  .date{color:var(--mut);font-size:.9rem}
+  h2{font-size:1.16rem;margin:34px 0 10px;padding-top:6px;letter-spacing:-.01em}
+  h2 .num{color:var(--accent);font-weight:700;margin-right:8px}
+  h3{font-size:1rem;margin:18px 0 6px;color:var(--mut)}
+  p{margin:.5em 0}
+  code{background:var(--code);padding:.12em .38em;border-radius:4px;
+    font:.87em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 20px;margin:14px 0}
+  .lede{background:var(--accent-soft);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:10px;padding:14px 18px;font-size:1.02rem}
+  .lede b{color:var(--accent)}
+  ul{margin:.4em 0;padding-left:1.25em}
+  li{margin:.28em 0}
+  .jarg{color:var(--mut);font-style:italic}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:.92rem}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+  .tag{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:20px;
+    text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+  .t-pass{background:var(--pass-soft);color:var(--pass)}
+  .t-done{background:var(--accent-soft);color:var(--accent)}
+  .t-open{background:var(--warn-soft);color:var(--warn)}
+  .t-defer{background:var(--code);color:var(--mut)}
+  .scroll{overflow-x:auto}
+  .foot{color:var(--mut);font-size:.85rem;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--link)}
+  .kbd{font:.82em ui-monospace,Menlo,Consolas,monospace;background:var(--code);
+    padding:.1em .4em;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>SewershedDelineation — Check-in</h1>
+  <div class="date">2026-07-12 · full-day snapshot: run.py spine → tests/CI → anonymization → Phase 9 rescope (demographics in)</div>
+</header>
+
+<div class="lede">
+  Big day. The research pile became a <b>near-releasable tool</b>: one-command <code>run.py</code> spine
+  (<b>proven identical to the validated output, 24/24 boundaries, 0.0000 ft²</b>), 77 passing intent-based
+  tests + CI, README + pinned deps, full site-anonymization, and a <b>rescoped Phase 9</b> that now ships
+  the whole WBE pipeline — <b>demographics included</b> — with JOSS submission demoted to optional
+  (Zenodo DOI is the citability). The validated IoU 0.875 / 0.863 LOO was never touched. Next build: the toy example.
+</div>
+
+<h2><span class="num">1</span>Where it stands</h2>
+<div class="card">
+  <p><b>Pipeline: done end to end and now packaged around one entry point.</b> <code>run.py</code> runs
+  trace → parcel membership → competing-pipe rules → boundary → cross-site seam alignment, writing the
+  same <code>sewershed_final.gpkg</code> the demographics phase eats. Eight commits landed today
+  (6c6be56 → ee798ce).</p>
+  <p><b>Release (Phase 9): partial.</b> Done: spine (C), tests+CI (F), demographics packaging (G),
+  README/requirements (A partial). Open: toy example (B — next), LICENSE/pyproject/data-README (A),
+  writeup (D), DOI + community docs (E).</p>
+</div>
+
+<h2><span class="num">2</span>What I figured out</h2>
+<div class="card">
+  <p><b>The equivalence gate is the day's load-bearing trick.</b> Instead of trusting the run.py rewrite,
+  all 24 validation sites were traced through it and each polygon compared to the committed reference by
+  <span class="jarg">symmetric difference (area in one shape but not the other — zero means identical)</span>.
+  All 24 came back 0.0000 ft² — the paper's number provably untouched. The gate also caught a real bug:
+  pandas' type inference silently corrupted zero-padded IDs (<code>02201</code> → <code>2201.0</code>);
+  fixed with <code>dtype=str</code>.</p>
+  <p><b>P2-4 was a free fix.</b> The production resolver (with the false-headwater guard
+  <span class="jarg">— avoids snapping to a dead-end stub node that only looks like the top of the network</span>)
+  and the validation sweep's bare nearest-node snap pick the <em>identical node and pipe set on all 24 sites</em>.
+  Unifying them can't move the number.</p>
+  <p><b>The QA subsystem's weaknesses are now quantified, not vibes.</b> Severity is a hard-coded label per
+  check (no scoring); ~85% of the 1,066 flags (isolated_manhole 522, invert_conflict 267, missing_direction 112)
+  got zero reviewer attention — by-design bulk; the one type that drew review effort (snap_gap) ran
+  <b>~1 true positive in 44</b> by Grace's own comments. And the repair machinery
+  (<code>qa_review</code>/<code>pipe_edits</code>/<code>pipe_splits</code>) is
+  <span class="jarg">welded into the graph loader — every delineation run re-applies the human decisions
+  CSV in memory</span> — so "keep QA private" was never an option; only the flag-emission side is separable.</p>
+  <p><b>Demographics was missing from the release plan by staleness, not decision</b> — built 07-10,
+  three days after the Phase 9 plan (07-07). Nobody ever chose to exclude it.</p>
+</div>
+
+<h2><span class="num">3</span>Decisions in play (all logged in decision_log 2026-07-12)</h2>
+<div class="card">
+  <ul>
+    <li><b>Thin run.py, not extraction.</b> The spine replicates the validated per-site loop rather than
+    refactoring the runners the paper's number rides on. The shared-function extraction is its own
+    parked, re-validated PR.</li>
+    <li><b>P2-7 pumped-guard refused.</b> Its premise is the exact error corrected 2026-07-02 (lift station
+    at the sampling point traces normally). Left: drop it, or redefine as the force-main-fed-subbasin detector.</li>
+    <li><b>Anonymization:</b> site name scrubbed from all text; data paths renamed on disk + in config
+    (<code>parcels_poly</code>, <code>census_blocks</code>); named local feature genericized ("trunk
+    interceptor"); FIPS codes kept (Census pull needs them); name-bearing binary gpkg untracked.</li>
+    <li><b>Phase 9 rescope — five calls:</b> (1) demographics in scope — ship the end-to-end WBE pipeline,
+    novelty framing stays on the validated delineation; (2) figures = de-identified screenshots OK (no
+    basemap, no IDs, no coordinates, no data files); (3) JOSS submission optional — build JOSS-ready,
+    mint Zenodo DOI, decide later; (4) QA ships as-is with honest docs, classification rework = seeded
+    post-release track; (5) demographics demo = real-geography walkthrough + scripted de-identified
+    render, no fake census mini-cache.</li>
+  </ul>
+</div>
+
+<h2><span class="num">4</span>Verification ledger</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Check</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>run.py vs validated boundaries (24 sites, twice — after build and after review fixes)</td>
+      <td><span class="tag t-pass">Pass</span> identical, worst 0.0000 ft²</td></tr>
+    <tr><td>Full test suite</td>
+      <td><span class="tag t-pass">77 passed</span> 46 pre-existing + 14 (traversal/boundary/run.py) + 17 (demographics math)</td></tr>
+    <tr><td>Teeth checks (tests fail against the planted bug)</td>
+      <td><span class="tag t-pass">Proven</span> false-headwater guard; zero-pad regression; weighted-median distinguishes weighting; P2-6 both naive failure modes</td></tr>
+    <tr><td><code>--qa-only</code> end to end</td>
+      <td><span class="tag t-pass">Pass</span> 38,385 pipes · 1,079 flags · all outputs</td></tr>
+    <tr><td>Post-scrub pipeline (renamed data paths)</td>
+      <td><span class="tag t-pass">Pass</span> config loads, 132,984 parcels, suite green</td></tr>
+    <tr><td>Two-axis code review (run.py + traversal)</td>
+      <td><span class="tag t-done">Clean</span> spec: nothing wrong; standards: 2 fixes applied</td></tr>
+    <tr><td>GitHub Actions CI</td>
+      <td><span class="tag t-open">Unverified</span> written; needs first push (geo-stack install risk)</td></tr>
+    <tr><td>Demographics tests read by Grace</td>
+      <td><span class="tag t-open">Pending</span> traversal/boundary/run.py tests signed off ("unit tests are goo"); the 17 demographics tests came after</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2><span class="num">5</span>Roadmap status (Phase 9, rescoped)</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Track</th><th>Status</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td>C — run.py spine</td><td><span class="tag t-pass">Done</span></td><td>equivalence-gated (d34ead4)</td></tr>
+    <tr><td>F — Tests + CI</td><td><span class="tag t-pass">Done</span></td><td>b817cfa; CI green pending first push</td></tr>
+    <tr><td>G — Demographics packaging</td><td><span class="tag t-pass">Done</span></td><td>ee798ce: 17 math tests, walkthrough + de-identified figure + render script</td></tr>
+    <tr><td>A — Repo hygiene</td><td><span class="tag t-open">Partial</span></td><td>README + requirements done; LICENSE (MIT confirm), pyproject, data/README (needs Grace's provenance)</td></tr>
+    <tr><td>B — Toy example</td><td><span class="tag t-open">Next</span></td><td>committed synthetic network, one-command demo, delineation-only</td></tr>
+    <tr><td>D — Writeup</td><td><span class="tag t-open">Open</span></td><td>numbers done (0.875/0.863); HTML writeup + de-identified figures pending</td></tr>
+    <tr><td>E — Release artifacts</td><td><span class="tag t-open">Open</span></td><td>CITATION.cff, .zenodo.json → DOI, paper.md, community docs</td></tr>
+    <tr><td>Post-release — QA rework</td><td><span class="tag t-defer">Parked</span></td><td>Grace's deep-dive; audit-seeded; decisions CSV = labeled truth data</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="card" style="border-left:4px solid var(--warn)">
+  <b>Open for Grace</b>
+  <ul style="margin-bottom:0">
+    <li>Read <code>tests/test_demographics.py</code> (hand math shown inline) — your sign-off rule.</li>
+    <li>LICENSE = MIT? · author list / ORCID · data provenance for <code>data/README.md</code>.</li>
+    <li>P2-7: drop or redefine. · Untracked scratch: <code>experiments/</code>, edge500 CSV — keep/commit/delete.</li>
+    <li>Push the branch → first real CI run.</li>
+  </ul>
+</div>
+
+<div class="foot">
+  Sources of record: <a href="decision_log.md">docs/decision_log.md</a> (two entries dated 2026-07-12) and
+  <a href="roadmap.md">docs/roadmap.md</a> (Phase 7 ✓, Phase 9 rescoped, post-release QA track).
+  Visual overview: <a href="SewershedDelineation_project_map.html">project map</a> (regenerated today; render
+  spot-check pending). Day's commits: 6c6be56, d34ead4, 97d1e25, 7c046ec, e4fdce9, b817cfa, ee798ce.
+</div>
+
+</div>
+</body>
+</html>
