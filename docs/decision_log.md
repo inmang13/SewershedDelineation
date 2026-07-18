@@ -1675,3 +1675,32 @@ delineation-only; `docs/demographics_walkthrough.md` documents the real-geograph
 Execution this pass: roadmap/log → `tests/test_demographics.py` → README QA-limitations →
 walkthrough skeleton. Still Grace's: LICENSE confirm (MIT?), author list/ORCID, data
 provenance, P2-7 drop-or-redefine.
+
+## 2026-07-17 — Lab deployment repo (sewershed-lab): vendored Streamlit app, slim data, equivalence-verified
+
+**Decision:** Built `PROJECTS/sewershed-lab` — a private lab-facing deployment of the
+validated pipeline, ahead of the Phase 9 public release. Streamlit app (`app.py`):
+manhole FACILITYID in → service-area polygon on a map, demographics table, GeoPackage +
+CSV downloads. Approach A (vendored snapshot): copy of `src/` + `run.py` /
+`run_demographics.py`; swaps to a pip dependency on the released package after Phase 9.
+
+**Rationale / key calls (Grace, this session):**
+- Streamlit over executable (PyInstaller + geo stack is a maintenance tarpit) or hosting
+  (private city data); runs on each user's machine.
+- Data committed to the private repo, including the corrected network — README carries a
+  prominent do-not-share notice. Anonymization rejected (tool needs real IDs/geometry).
+- Layers slimmed to pipeline-required columns as GeoPackages (mains 8.6 MB, manholes
+  3.9 MB, parcels 99.2 MB — just under GitHub's 100 MB cap, Git LFS if it grows; census
+  blocks pre-filtered to county, 5.6 MB). Corrections ship as source layer +
+  `QC/qa_review_decisions.csv`, applied at load like production.
+- Census cache (`data/census`, 212 KB) committed → demographics run offline, no API key
+  for normal use.
+
+**Verification:** site 27508 boundary identical to main repo (symmetric difference
+0.0 ft²); demographics match the committed 24-site run (pop 2,320 vs 2,322 — seam-align
+noise). Two-axis code review run; fixes landed: all-sites-skipped crash, demographics on
+the raw (non-exploded) parcel frame mirroring `run_demographics.py` (exploded parts
+repeat PARVAL → skewed property stats), catch-all error handling, fresh-machine README.
+
+**Maintenance rule:** pipeline fixes land in SewershedDelineation first, then copy to
+sewershed-lab's `src/` — until the post-Phase-9 dependency swap removes the vendoring.
