@@ -275,19 +275,26 @@ until first push (geo-stack install on ubuntu-latest). Demographics tests moved 
 **Track B — Runnable example. ✓ DONE 2026-07-26.** `examples/toy/` — 12-pipe synthetic tree
 (13 manholes, 484 gridded parcels), committed as GeoPackages plus the deterministic
 `make_toy_data.py` that generates them. `python run.py --config examples/toy/config.yaml`
-→ 12 pipes / 124 parcels / 120.8 acres. Config carries the **shipped production parameters
-verbatim** — nothing demo-tuned; the network is spaced at 1000 ft so branch gaps clear
+→ 12 pipes / 124 parcels / 120.8 acres. Config carries the **shipped production values for
+every parameter that affects the delineation** (two documented departures, neither
+geometric: `basemap_style` street-not-satellite, and the validation-only `iou_floor_*` keys
+omitted) — nothing tuned to flatter the demo; the network is spaced at 1000 ft so branch gaps clear
 `delaunay_max_edge_ft` (500) and the boundary follows the network instead of blobbing to the
 convex hull. `tests/test_toy_example.py` (12 tests) asserts hand-counted upstream oracles
 (MH01→12, MH03→10, MH04→6, MH08→0 headwater) and is the only test running the full `run.py`
 path against files on disk. Delineation-only by design — **no demographics** (needs real FIPS
 geography + Census key; Grace's call 2026-07-12, walkthrough covers it instead).
-- **Found and fixed a live bug (roadmap P3-10):** `run.py` prefixed `_base_dir` onto
+- **Found and fixed a live bug — a NEW instance of the P3-10 *family*, not one of the four
+  defects P3-10 lists; P3-10 itself stays open.** `run.py` prefixed `_base_dir` onto
   `outputs.flags_report` / `qc_flags_gpkg`, which `load_config` had **already** resolved —
   writing to `<base>/<base>/output/…`. Invisible for every config at the repo root (base `.`)
   and for absolute config paths (`Path(a) / abs` discards `a`), so only a *relative* config in
   a subdirectory exposes it. That is exactly how the README invokes the toy. Regression test
-  verified RED against the pre-fix code.
+  verified RED against the pre-fix code. Checked 2026-07-26: the other runners do **not**
+  share this particular defect (`run_qa.py` already used the resolved values;
+  `run_competing_review.py` / `run_demographics.py` prefix `base` but their keys are absent
+  from `config.py`'s resolve list, so they are correct) — the fix is complete for what it
+  claims and sweeps no wider.
 
 **Track G — Demographics packaging (NEW 2026-07-12).**
 - `tests/test_demographics.py` — intent-based tests for the pure apportionment math
@@ -462,6 +469,14 @@ real decision into `decision_log.md`.
     `run_node_layer.py` bypasses `load_config` entirely; `run_polygon_output.py` flattens
     configured paths via `Path(...).name`; `run_qa.py:59` derives paths by string
     `.replace()`. Pick one convention (load_config resolves everything; runners use it).
+    **Still open** — none of the four above is fixed. Two further members of this family
+    surfaced 2026-07-26 while building the toy example: (a) `run.py` double-prefixed
+    `_base_dir` onto already-resolved output paths — **fixed**, see Track B; (b) `run.py:314`
+    hardcodes `base / "output" / "sewershed_final.gpkg"` and ignores the resolved
+    `outputs.output_polygon`, so that config key is dead in the primary runner —
+    **not fixed**, deliberately out of Track B's scope because changing the default output
+    path is a behaviour change for every existing caller. Fold into this item when it is
+    taken up.
 11. [ ] **`data/README.md` provenance:** source, download date, expected CRS/fields for
     each input (municipal GIS layers, parcels, TIGER blocks, NHGIS extract).
 

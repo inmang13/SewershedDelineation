@@ -26,6 +26,7 @@ Intent being guarded:
 Run:  python -m pytest tests/test_toy_example.py
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -60,12 +61,52 @@ def toy_graph():
 
 # --- the network itself ---------------------------------------------------
 
-def test_toy_data_is_present_and_committed():
-    # The demo is worthless if the data isn't in the repo — a stranger cloning
-    # the project must not have to run the generator first.
-    data = TOY_CONFIG.parent / "data"
-    for name in ("gravity_mains.gpkg", "manholes.gpkg", "parcels.gpkg"):
-        assert (data / name).exists(), f"missing committed toy layer: {name}"
+TOY_LAYERS = ("gravity_mains.gpkg", "manholes.gpkg", "parcels.gpkg")
+
+
+def test_toy_data_is_tracked_by_git():
+    """The demo is worthless if the data isn't in the repo — a stranger cloning
+    the project must not have to run the generator first.
+
+    This asks git, not the filesystem. `.gitignore` has a blanket `data/` rule
+    with a negation re-including `examples/toy/data/`; if that negation broke,
+    the files would still be sitting on a developer's disk and `Path.exists()`
+    would stay green while a fresh clone came up empty. Only `git ls-files`
+    distinguishes the two.
+    """
+    out = subprocess.run(["git", "ls-files", "examples/toy/data"],
+                         cwd=ROOT, capture_output=True, text=True)
+    if out.returncode != 0:                    # not a git checkout (e.g. sdist)
+        pytest.skip("not a git working tree")
+    tracked = {Path(line).name for line in out.stdout.split()}
+    missing = [n for n in TOY_LAYERS if n not in tracked]
+    assert not missing, f"toy layers not tracked by git: {missing}"
+
+
+def test_committed_data_matches_the_generator(tmp_path):
+    """The committed GeoPackages must be what make_toy_data.py produces.
+
+    Shipping both the data and its generator is only honest if they agree, and
+    the GeoPackages are binary, so nobody can eyeball a diff. A byte hash will
+    not do the job: GDAL stamps a write timestamp into gpkg_contents.last_change,
+    so regenerating changes every hash while the features stay identical. Compare
+    content instead — that is the property actually worth guarding.
+    """
+    sys.path.insert(0, str(TOY_CONFIG.parent))
+    import make_toy_data
+
+    make_toy_data.main(out_dir=tmp_path, quiet=True)
+    for name in TOY_LAYERS:
+        committed = gpd.read_file(TOY_CONFIG.parent / "data" / name)
+        regenerated = gpd.read_file(tmp_path / name)
+        assert len(committed) == len(regenerated), f"{name}: feature count differs"
+        assert list(committed.columns) == list(regenerated.columns), f"{name}: schema differs"
+        assert committed.crs == regenerated.crs, f"{name}: CRS differs"
+        for col in committed.columns.drop("geometry"):
+            assert committed[col].tolist() == regenerated[col].tolist(), \
+                f"{name}: column {col} differs"
+        assert committed.geometry.geom_equals_exact(
+            regenerated.geometry, tolerance=1e-9).all(), f"{name}: geometry differs"
 
 
 def test_toy_graph_has_one_edge_per_pipe(toy_graph):

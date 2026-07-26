@@ -6,9 +6,17 @@ delineation pipeline end to end without the municipal GIS layers, which are not
 redistributable. Everything here is invented: the coordinates are a round-number
 origin in the EPSG:2264 range, not a real place.
 
-Deterministic — no randomness, no inputs. Re-running overwrites the same three
-GeoPackages byte-for-byte, so the committed data can always be regenerated and
-diffed.
+Deterministic in content — no randomness, no inputs, no clock-dependent values
+in any field. It is NOT byte-reproducible: GDAL stamps a write timestamp into
+the GeoPackage's `gpkg_contents.last_change`, so re-running changes all three
+file hashes and dirties the working tree even though every feature is identical.
+Regenerate only when you mean to change the data.
+
+`tests/test_toy_example.py::test_committed_data_matches_the_generator` is what
+actually holds the committed layers to this file: it regenerates into a temp
+directory and compares geometry and attributes feature by feature. That check is
+on content, which is the property worth guarding — a byte hash would break on a
+GDAL version bump without anything real having changed.
 
     python examples/toy/make_toy_data.py
 
@@ -90,15 +98,28 @@ PIPES = [
     ("P012", "MH13", "MH05"),
 ]
 
-# Network steps from the outlet, used to set invert elevations so they fall
-# consistently downstream (cross-check attributes only — direction comes from
-# geometry). Hand-counted from PIPES above.
-STEPS_FROM_OUTLET = {
-    "MH01": 0, "MH02": 1, "MH03": 2, "MH04": 3, "MH05": 4,
-    "MH06": 3, "MH07": 4, "MH08": 5,
-    "MH09": 4, "MH10": 5, "MH11": 6,
-    "MH12": 5, "MH13": 5,
-}
+def _steps_from_outlet() -> dict[str, int]:
+    """How many pipes each node sits above the outlet.
+
+    Used only to set invert elevations so they fall consistently downstream
+    (cross-check attributes — direction itself comes from geometry). Derived
+    from PIPES rather than hand-tabulated, so editing the network can't leave a
+    stale step count behind.
+    """
+    downstream_of = {up: dn for _, up, dn in PIPES}
+    steps = {}
+    for node in NODES:
+        n, cur = 0, node
+        while cur in downstream_of:
+            cur = downstream_of[cur]
+            n += 1
+            if n > len(PIPES):                      # a cycle would never exit
+                raise ValueError(f"{node} does not drain to an outlet")
+        steps[node] = n
+    return steps
+
+
+STEPS_FROM_OUTLET = _steps_from_outlet()
 
 
 def _xy(node: str) -> tuple[float, float]:
@@ -173,18 +194,27 @@ def build_parcels() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(rows, geometry="geometry", crs=CRS)
 
 
-def main() -> None:
-    out_dir = Path(__file__).parent / "data"
+LAYER_BUILDERS = {
+    "gravity_mains": build_mains,
+    "manholes": build_manholes,
+    "parcels": build_parcels,
+}
+
+
+def main(out_dir: Path | None = None, quiet: bool = False) -> None:
+    """Write all three layers. `out_dir` defaults to the data/ dir beside this
+    file; the determinism test passes a temp directory instead."""
+    out_dir = Path(out_dir) if out_dir else Path(__file__).parent / "data"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # One layer per file: gpd.read_file() without an explicit `layer=` takes the
     # first layer, and the pipeline never passes one.
-    for name, gdf in (("gravity_mains", build_mains()),
-                      ("manholes", build_manholes()),
-                      ("parcels", build_parcels())):
+    for name, build in LAYER_BUILDERS.items():
+        gdf = build()
         path = out_dir / f"{name}.gpkg"
         gdf.to_file(path, layer=name, driver="GPKG")
-        print(f"wrote {path}  ({len(gdf)} features)")
+        if not quiet:
+            print(f"wrote {path}  ({len(gdf)} features)")
 
 
 if __name__ == "__main__":

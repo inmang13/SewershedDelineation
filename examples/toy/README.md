@@ -12,14 +12,31 @@ python run.py --config examples/toy/config.yaml
 Expected output:
 
 ```
+Loading graph : examples/toy/data/gravity_mains.gpkg
+
 label           target                  pipes  served     acres  status
 MH01            MH01                       12     124     120.8  ok
 
 Wrote examples/toy/output/sewershed_final.gpkg (layer: boundary, 1 sites)
 Wrote examples/toy/output/flags.csv (0 flags)
+Wrote examples/toy/output/qc_flags.gpkg (+0 delineation flag layers)
+
+Delineated 1 site(s); median area 121 acres.
 ```
 
 `examples/toy/output/` is gitignored — delete it any time.
+
+## Regenerating the data
+
+You don't need to: the layers are committed. `make_toy_data.py` is here so the
+geometry is reviewable and so the data can be rebuilt if you change the network.
+
+It is deterministic in **content** but not byte-for-byte — GDAL stamps a write
+timestamp into each GeoPackage, so re-running dirties all three files in git even
+though every feature is identical. Regenerate only when you mean to change the
+data. `tests/test_toy_example.py` is what actually keeps the committed layers
+honest: it regenerates into a temp directory and compares geometry and
+attributes feature by feature.
 
 ## What's here
 

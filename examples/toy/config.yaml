@@ -6,11 +6,20 @@
 # make_toy_data.py. Paths are resolved relative to THIS file, so the run writes
 # into examples/toy/output/ and leaves the real output/ directory alone.
 #
-# The parameters below are the shipped production values, copied verbatim from
-# the repo-root config.yaml — nothing is demo-tuned. The toy network is spaced
-# at 1000 ft precisely so the real thresholds behave sensibly on it.
+# Every parameter that affects the delineation carries its shipped production
+# value from the repo-root config.yaml — nothing is tuned to flatter the demo.
+# The toy network is spaced at 1000 ft precisely so the real thresholds behave
+# sensibly on it, rather than the thresholds being relaxed to suit the network.
 #
-# NOT included: the census-block inputs, the validation truth set, and the
+# Two deliberate departures, neither of which touches the geometry:
+#   * `basemap_style` is "street", not the production "satellite". Tiles would
+#     be fetched for a synthetic location in the middle of nowhere; street
+#     degrades more gracefully, and both are map-rendering only.
+#   * `iou_floor_median` / `iou_floor_n_sites` are omitted. They are validation
+#     thresholds read only by src/validation.py --sweep, which needs the truth
+#     polygons this example does not ship.
+#
+# Also NOT included: the census-block inputs, the validation truth set, and the
 # `census:` / `demographics:` blocks. The demographic phase needs real Census
 # geography and an API key, so it cannot run here — see README.md and
 # docs/demographics_walkthrough.md.
