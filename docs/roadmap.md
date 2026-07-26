@@ -303,6 +303,24 @@ until first push (geo-stack install on ubuntu-latest). Demographics tests moved 
   catchment-demographic ground truth exists).
 
 **Track E — Release artifacts (final; needs A/B/D/G).**
+- [ ] **BLOCKER — history scrub → new public repo (decided 2026-07-26, do this FIRST in E).**
+  The current repo is **private**, and the 2026-07-12 anonymization (`7c046ec`/`e4fdce9`)
+  scrubbed only the working tree — every pre-scrub commit still carries the site name, and
+  those objects are on GitHub. Recipe, verified 2026-07-26:
+  1. `pip install git-filter-repo`; work on a **fresh clone** (the private repo stays as the
+     unredacted dev archive — do NOT force-push it).
+  2. `--replace-text` for the **two identifying strings** — the city name and the named creek
+     interceptor; read them out of `git show 7c046ec` / `git show e4fdce9` in the private
+     archive, do not copy them into a tracked file — 18 files / 15 commits. Also
+     `--replace-message` for the same: the strings are in commit messages too.
+  3. Delete blobs for the six ever-tracked binaries: `QC/trace_17_09_24430.gpkg`, `_v2.gpkg`,
+     `QC/competing_pipe_review.gpkg`, `QC/diagnostics_downstream.gpkg`,
+     `QC/recheck_v2_4parcels.gpkg`, `QC/validation_traces.gpkg` — real network data, and two
+     embed the name in layer names (un-text-scrubbable).
+  4. Verify `git grep -i -E "<name1>|<name2>" $(git rev-list --all)` is empty, then push to a
+     **new public repo**; tag + Zenodo from there.
+  - **Hazard:** untracked `run_meter_service_areas_from_coords.py` contains the name — scrub
+    before committing it, or the rewrite must be redone. Same for anything from `experiments/`.
 - `CITATION.cff` + `.zenodo.json`; Zenodo integration → archived **DOI** on tagged release.
 - `paper/paper.md` (~600 words: statement of need, framed per the rescope — end-to-end WBE
   pipeline, validated delineation core) + `paper.bib`. Written regardless; submitted only if
@@ -310,9 +328,20 @@ until first push (geo-stack install on ubuntu-latest). Demographics tests moved 
 - Community docs: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates.
 - Author list / affiliations / ORCID.
 
-**Status 2026-07-12:** C and F done; A partial. Next: G (tests + walkthrough), then B (toy
-example), then remaining A, D writeup, E artifacts. Open confirms: license (MIT?), author list,
-data provenance for `data/README.md`.
+**Status 2026-07-26:** C, F, **G** done (`tests/test_demographics.py`,
+`docs/demographics_walkthrough.md`, `docs/img/demographics_choropleth.png`); A partial.
+Backlog **pushed 2026-07-26** (`1767a2a..334e5d0`, 11 commits) — first-ever CI trigger, geo-stack
+install on ubuntu-latest still to be confirmed. **Next: B (toy example — `examples/` does not
+exist yet), then remaining A, D writeup, E artifacts (history scrub first).** Open confirms:
+license (MIT?), author list/ORCID, data provenance for `data/README.md`, P2-7 drop-or-redefine.
+
+**Undocumented side quest, 2026-07-17 → 2026-07-26** (untracked, no log entry): `experiments/`
+(`run_edge_rescore.py`, `run_snap_rescore.py`, `run_blockfill_rescore.py`,
+`run_hull_candidates.py`, `pop_by_operational_area.*`), `QC/competing_pipe_review_edge500.csv`,
+`run_meter_service_areas_from_coords.py`. The rescore scripts score *deltas* off the ~0.81
+pre-full-rules baseline, so they do not touch the quotable 0.875 / 0.863 LOO — but **whether any
+variant won is unrecorded.** Decide: commit as a documented side quest, or gitignore. Either way
+log the outcome.
 
 ---
 

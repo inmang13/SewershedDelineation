@@ -1704,3 +1704,60 @@ repeat PARVAL → skewed property stats), catch-all error handling, fresh-machin
 
 **Maintenance rule:** pipeline fixes land in SewershedDelineation first, then copy to
 sewershed-lab's `src/` — until the post-Phase-9 dependency swap removes the vendoring.
+
+## 2026-07-26 — Pushed 11 backlogged commits; history-scrub strategy locked for the public release
+
+**Context:** `origin/master` had been sitting at `1767a2a` (2026-07-08) while eleven commits
+accumulated locally — including the whole 2026-07-12 day (run.py spine, test suite + CI,
+README/requirements, the anonymization pass, the Phase 9 rescope). CI had therefore *never*
+run, and the anonymization had never reached the remote.
+
+**Action 1 — pushed** `1767a2a..334e5d0`. First trigger of `.github/workflows/tests.yml`
+(pytest on ubuntu-latest, Python 3.13); the geo-stack install is the untested part.
+Result to be confirmed at github.com/inmang13/SewershedDelineation/actions.
+
+**Finding — the repo is private** (unauthenticated GitHub returns 404; control request to a
+known public repo returns 200). So the study-site name sitting in pushed history is **not a
+live exposure**. It is a blocking prerequisite for going public, not an incident. This
+distinction was worth establishing before touching anything: it took the operation off the
+emergency path and let the strategy be chosen on merit.
+
+**Finding — scrubbing the working tree never touched published history.** Commits `7c046ec`
+and `e4fdce9` (2026-07-12) genericized the tree, but every pre-scrub commit still carries the
+original content, and those objects are on GitHub now. Verified scope:
+
+- **Two identifying strings** — the city name and the named creek interceptor. Deliberately not
+  written out here: this log is tracked, and quoting them would re-contaminate the tree the
+  scrub exists to keep clean. Read them from `git show 7c046ec` / `git show e4fdce9` in the
+  private archive at rewrite time. 18 files across 15 commits, present in blob content *and*
+  in commit messages (7c046ec's own message names the renamed data paths).
+- Six `QC/*.gpkg` binaries were tracked at some point — `trace_17_09_24430`, `_v2`,
+  `competing_pipe_review`, `diagnostics_downstream`, `recheck_v2_4parcels`, `validation_traces`.
+  Two embed the site name in layer names (un-text-scrubbable, which is why `_v2` was untracked
+  in 7c046ec) and all six are real network data, which the figures policy keeps offline. These
+  get **deleted as blobs**, not text-replaced.
+- The **current tracked tree is clean** (`git grep -i` for both strings returns nothing) and
+  `data/` + `output/` are correctly gitignored. The scrub itself worked; only history is dirty.
+
+**Decision (Grace, this session): scrub a clone into a NEW public repo.** Run `git-filter-repo`
+(not installed yet — `pip install git-filter-repo`) against a fresh clone: `--replace-text` for
+both strings over blobs, `--replace-message` for the same over commit messages, and path
+deletion for the six `QC/*.gpkg`. Push the cleaned result to a new public repository. The
+existing private repo is **left untouched as the unredacted dev archive**.
+
+**Rationale:** preserves ~35 commits of genuine development history in the public artifact —
+which is the "substantial scholarly effort" evidence a JOSS reviewer looks for — while carrying
+zero risk to what already exists. Rejected: (a) a fresh single-commit repo — provably clean but
+publicly historyless, reads thin for JOSS; (b) in-place filter-repo + force-push over
+`origin/master` — identical cleaning work, but destroys the unredacted record and force-pushes
+published refs for no added benefit.
+
+**Decision — timing: defer to Track E, immediately before the release tag.** Tracks B/A/D/G
+will keep adding commits; rewriting now would mean maintaining two remotes through the rest of
+Phase 9 for no gain. One clean operation against the final tree instead. Logged here and added
+to the roadmap as a hard Track E prerequisite so it cannot be forgotten at tag time.
+
+**Carry-forward hazard:** the untracked `run_meter_service_areas_from_coords.py` (written in the
+undocumented 07-17→07-26 window) **contains the site name**. Scrub it before it is ever
+committed, or the rewrite has to be redone. Same check applies to anything salvaged out of
+`experiments/`.
