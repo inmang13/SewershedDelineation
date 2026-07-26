@@ -1761,3 +1761,47 @@ to the roadmap as a hard Track E prerequisite so it cannot be forgotten at tag t
 undocumented 07-17→07-26 window) **contains the site name**. Scrub it before it is ever
 committed, or the rewrite has to be redone. Same check applies to anything salvaged out of
 `experiments/`.
+
+## 2026-07-26 (pm) — Track B: toy example shipped; exposed and fixed the P3-10 path bug
+
+**Built `examples/toy/`** — the runnable demo Phase 9 needs so a stranger can execute the
+pipeline without the municipal layers. 12-pipe synthetic tree, 13 manholes, 484 gridded
+parcels, committed as single-layer GeoPackages alongside the deterministic generator
+(`make_toy_data.py`) that produces them. `python run.py --config examples/toy/config.yaml`
+→ 12 pipes / 124 parcels / 120.8 acres.
+
+**Design calls:**
+- **Committed data AND the generator.** The data must be in the repo (a demo that requires a
+  build step first is not a demo), but committing binaries with no readable source makes the
+  geometry unreviewable. The generator is the source of truth; the GeoPackages are its output.
+- **Production parameters, verbatim.** The toy config copies the shipped values rather than
+  demo-tuning them — a demo that only works on special parameters demonstrates nothing. This
+  forced the network geometry to accommodate the real thresholds instead of the reverse.
+- **1000 ft manhole spacing** is the consequence. `delaunay_max_edge_ft` is 500 ft; at the
+  originally-planned 400 ft spacing Delaunay bridges *between* branches and returns roughly the
+  convex hull of the tree — a blob that hides what the tool does. 1000 ft leaves ~600 ft
+  between parcel corridors, clear of the threshold. Guarded by a test that bounds the boundary
+  area against the corridor estimate (~110 acres; the blob failure mode is ~367).
+- **GeoPackage over shapefile** — one file per layer instead of six, CRS carried natively.
+  Single-layer files, since `gpd.read_file` without `layer=` takes the first.
+- **Delineation-only.** No demographics (real FIPS geography + API key; 2026-07-12 decision
+  stands), and QA is uninteresting because the toy network is clean by construction. Both
+  stated plainly in `examples/toy/README.md` rather than left for a user to discover.
+
+**Bug found by the toy — roadmap P3-10, now fixed.** `run.py` prefixed `_base_dir` onto
+`outputs.flags_report` and `outputs.qc_flags_gpkg`, which `load_config` had **already** resolved,
+producing `<base>/<base>/output/flags.csv`. Two independent reasons it stayed hidden since
+run.py landed: every config to date lived at the repo root, where base is `.` and the doubling
+is a no-op; and `Path(a) / b` discards `a` when `b` is absolute, so absolute config paths mask
+it too. Only a *relative* config path in a subdirectory reproduces it — precisely how the
+README tells you to invoke the toy. Fixed by using the already-resolved path.
+
+**Testing.** `tests/test_toy_example.py`, 12 tests, the only ones that run the full `run.py`
+path against real files on disk (everything else builds geometry inline). Upstream counts are
+hand-counted oracles from the node table, not snapshots: MH01→12, MH03→10, MH04→6, MH08→0
+(headwater). Suite 77 → 89, still under 4 s.
+
+**Process note worth keeping:** the first version of the path regression test passed against
+the *buggy* code, because it staged the config at an absolute path. A regression test that is
+never RED on the defect it names is decoration. It was rewritten to chdir and use a relative
+config path, then verified RED against the pre-fix code before being accepted.

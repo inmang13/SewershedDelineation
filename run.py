@@ -319,14 +319,19 @@ def main():
     fin.to_file(out_path, layer="boundary", driver="GPKG")
     print(f"\nWrote {out_path} (layer: boundary, {len(fin)} sites)")
 
-    flags_path = base / cfg["outputs"]["flags_report"]
+    # load_config already resolved these against the config's directory
+    # (config.py), so do NOT prefix `base` again — that double-prefixes to
+    # <base>/<base>/output/... for any config outside the repo root. Harmless
+    # when base is "." (every run before the toy example), which is why it
+    # survived this long. Roadmap P3-10.
+    flags_path = Path(cfg["outputs"]["flags_report"])
     flags_path.parent.mkdir(parents=True, exist_ok=True)
     n_flags = write_flags_csv(all_flags, flags_path)
     print(f"Wrote {flags_path} ({n_flags} flags)")
 
     gpkg_flags = cfg["outputs"].get("qc_flags_gpkg")
     if gpkg_flags:
-        gpath = base / gpkg_flags
+        gpath = Path(gpkg_flags)
         _clear_delineation_layers(gpath)              # P2-6: no stale delin_ layers
         layers = write_qc_flags_gpkg(all_flags, gpath, crs, replace=False)
         print(f"Wrote {gpath} (+{len(layers)} delineation flag layers)")

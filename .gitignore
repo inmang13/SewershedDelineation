@@ -2,6 +2,13 @@
 data/
 output/
 
+# ...except the toy example's data, which MUST ship: it is the only way to run
+# the pipeline without the municipal layers (roadmap Track B). The directory has
+# to be un-ignored before the files, because git does not descend into an
+# excluded directory to evaluate a negation inside it.
+!examples/toy/data/
+!examples/toy/data/**
+
 # Python
 __pycache__/
 *.pyc

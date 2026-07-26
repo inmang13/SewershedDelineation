@@ -1,0 +1,105 @@
+# Toy example config (roadmap Phase 9, Track B).
+#
+#   python run.py --config examples/toy/config.yaml
+#
+# Runs the full delineation pipeline against the synthetic network built by
+# make_toy_data.py. Paths are resolved relative to THIS file, so the run writes
+# into examples/toy/output/ and leaves the real output/ directory alone.
+#
+# The parameters below are the shipped production values, copied verbatim from
+# the repo-root config.yaml — nothing is demo-tuned. The toy network is spaced
+# at 1000 ft precisely so the real thresholds behave sensibly on it.
+#
+# NOT included: the census-block inputs, the validation truth set, and the
+# `census:` / `demographics:` blocks. The demographic phase needs real Census
+# geography and an API key, so it cannot run here — see README.md and
+# docs/demographics_walkthrough.md.
+
+inputs:
+  # MH01 is the outlet: tracing it returns the whole 12-pipe network.
+  # Try --sites MH04 (6 pipes) or --sites MH08 (a headwater — no upstream).
+  manhole_id: "MH01"
+  manhole_coordinate: null
+
+  gravity_main_shapefile: "data/gravity_mains.gpkg"
+  manholes_shapefile: "data/manholes.gpkg"
+  population_units_shapefile: "data/parcels.gpkg"
+  population_units_crs: "EPSG:2264"   # the toy layer carries a CRS; kept for parity
+
+  # qa_review_decisions is deliberately omitted: the toy network has no defects
+  # to review, and the loader treats a missing path as "no decisions".
+
+parameters:
+  crs: "EPSG:2264"                  # NAD83 / NC State Plane, US survey feet
+  node_snap_tolerance_ft: 1.0
+  snap_gap_search_radius_ft: 10.0
+  manhole_snap_distance_ft: 50.0
+  manhole_node_snap_ft: 5.0
+  review_match_radius_ft: 50.0
+  pipe_buffer_distance_ft: 50.0
+  selection_radius_ft: 50.0
+
+  split_midspan_junctions: true
+  midspan_interior_tol_ft: 2.0
+  midspan_endpoint_exclusion_ft: 10.0
+
+  apply_pipe_edits: true
+  pipe_edit_locate_tol_ft: 50.0
+
+  competing_pipe_check: true
+
+  boundary_method: "delaunay"
+  delaunay_max_edge_ft: 500.0
+  bridge_parts_max_gap_ft: 800.0
+  seam_align_tol_ft: 50.0
+  fill_uncovered_enabled: true
+  fill_uncovered_buffer_ft: 100.0
+  resolve_overlaps_enabled: false
+  close_radius_ft: 150.0
+  concave_ratio: 0.3
+
+  large_catchment_threshold_acres: 500.0
+  flag_map_context_buffer_ft: 1000.0
+  low_population_match_min_buffer_coverage: 0.5
+  max_mappable_cycle_nodes: 10
+  disconnected_component_max_nodes: 50
+  competing_ignore_dangling_max_pipes: 3
+
+  explode_multipart_units: true
+
+  split_border_contested: true
+  split_near_radius_ft: 100.0
+  split_densify_step_ft: 3.0
+
+  border_ring_ft: 75.0
+  border_min_expose: 0.10
+  border_min_cover_frac: 0.02
+  border_min_cover_area_ft2: 2178.0
+
+  competing_assign_by_buffer: true
+  competing_assign_buffer_ft: 50.0
+
+  pdf_flag_types:
+    - invert_conflict
+    - snap_gap
+    - attribute_slope_error
+    - directed_cycle
+    - midspan_junction
+    - manual_edit
+
+  # Basemap tiles need internet and would sit under a synthetic network in the
+  # middle of nowhere anyway. "street" degrades gracefully when offline.
+  basemap_style: "street"
+
+outputs:
+  node_layer: "output/pipe_endpoint_nodes.gpkg"
+  snap_gap_pairs: "output/snap_gap_pairs.gpkg"
+  end_nodes: "output/end_nodes.gpkg"
+  output_polygon: "output/sewershed.shp"
+  flags_report: "output/flags.csv"
+  flag_maps_pdf: "output/flag_maps.pdf"
+  large_cycle_suspects: "output/large_cycle_suspects.csv"
+  debug_upstream_pipes: "output/debug_upstream_pipes.shp"
+  sewershed_parcels: "output/sewershed_parcels.shp"
+  sewershed_boundary: "output/sewershed_boundary.shp"
+  qc_flags_gpkg: "output/qc_flags.gpkg"

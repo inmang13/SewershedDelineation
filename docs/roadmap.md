@@ -272,12 +272,22 @@ until first push (geo-stack install on ubuntu-latest). Demographics tests moved 
 **Track C — Unified `run.py` spine. ✓ DONE 2026-07-12** (commit d34ead4, equivalence-gated:
 24/24 boundaries identical to the validated output, worst symdiff 0.0000 ft²).
 
-**Track B — Runnable example (unblocked; delineation-only by design).**
-- **Synthetic toy network** (Grace's call 2026-07-07): hand-built ~10–20-pipe fake sewer + parcels,
-  committed, deterministic — sidesteps the uncommitted/redistribution-restricted source data.
-- One-command demo: `python run.py --config examples/toy/config.yaml` → sewershed polygon.
-- **Does NOT cover demographics** (needs real FIPS geography + Census key — Grace's call
-  2026-07-12: no fake census mini-cache; demographics demos via Track G's walkthrough instead).
+**Track B — Runnable example. ✓ DONE 2026-07-26.** `examples/toy/` — 12-pipe synthetic tree
+(13 manholes, 484 gridded parcels), committed as GeoPackages plus the deterministic
+`make_toy_data.py` that generates them. `python run.py --config examples/toy/config.yaml`
+→ 12 pipes / 124 parcels / 120.8 acres. Config carries the **shipped production parameters
+verbatim** — nothing demo-tuned; the network is spaced at 1000 ft so branch gaps clear
+`delaunay_max_edge_ft` (500) and the boundary follows the network instead of blobbing to the
+convex hull. `tests/test_toy_example.py` (12 tests) asserts hand-counted upstream oracles
+(MH01→12, MH03→10, MH04→6, MH08→0 headwater) and is the only test running the full `run.py`
+path against files on disk. Delineation-only by design — **no demographics** (needs real FIPS
+geography + Census key; Grace's call 2026-07-12, walkthrough covers it instead).
+- **Found and fixed a live bug (roadmap P3-10):** `run.py` prefixed `_base_dir` onto
+  `outputs.flags_report` / `qc_flags_gpkg`, which `load_config` had **already** resolved —
+  writing to `<base>/<base>/output/…`. Invisible for every config at the repo root (base `.`)
+  and for absolute config paths (`Path(a) / abs` discards `a`), so only a *relative* config in
+  a subdirectory exposes it. That is exactly how the README invokes the toy. Regression test
+  verified RED against the pre-fix code.
 
 **Track G — Demographics packaging (NEW 2026-07-12).**
 - `tests/test_demographics.py` — intent-based tests for the pure apportionment math
@@ -336,11 +346,11 @@ until first push (geo-stack install on ubuntu-latest). Demographics tests moved 
 - Community docs: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue templates.
 - Author list / affiliations / ORCID.
 
-**Status 2026-07-26:** C, F, **G** done (`tests/test_demographics.py`,
+**Status 2026-07-26:** B, C, F, **G** done (`tests/test_demographics.py`,
 `docs/demographics_walkthrough.md`, `docs/img/demographics_choropleth.png`); A partial.
 Backlog **pushed 2026-07-26** (`1767a2a..334e5d0`, 11 commits) — first-ever CI trigger, geo-stack
-install on ubuntu-latest still to be confirmed. **Next: B (toy example — `examples/` does not
-exist yet), then remaining A, D writeup, E artifacts (history scrub first).** Open confirms:
+install on ubuntu-latest still to be confirmed. **Next: remaining A (LICENSE / pyproject.toml /
+data README), D writeup, E artifacts (history scrub first).** Open confirms:
 license (MIT?), author list/ORCID, data provenance for `data/README.md`, P2-7 drop-or-redefine.
 
 **Undocumented side quest, 2026-07-17 → 2026-07-26** (untracked, no log entry): `experiments/`
