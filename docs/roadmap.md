@@ -307,16 +307,24 @@ until first push (geo-stack install on ubuntu-latest). Demographics tests moved 
   The current repo is **private**, and the 2026-07-12 anonymization (`7c046ec`/`e4fdce9`)
   scrubbed only the working tree — every pre-scrub commit still carries the site name, and
   those objects are on GitHub. Recipe, verified 2026-07-26:
+  0. **FIRST, before any rewriting:** read the **two identifying strings** — the city name and
+     the named creek interceptor — out of `git show 7c046ec` / `git show e4fdce9` in the
+     private archive, and write the filter-repo replacements file **outside the repo** (e.g.
+     `~/scrub_replacements.txt`). Order matters: after the rewrite those diffs are themselves
+     scrubbed, so the strings are unrecoverable from the clone. They are deliberately not
+     written into any tracked file — quoting them here would re-contaminate the tree.
   1. `pip install git-filter-repo`; work on a **fresh clone** (the private repo stays as the
      unredacted dev archive — do NOT force-push it).
-  2. `--replace-text` for the **two identifying strings** — the city name and the named creek
-     interceptor; read them out of `git show 7c046ec` / `git show e4fdce9` in the private
-     archive, do not copy them into a tracked file — 18 files / 15 commits. Also
-     `--replace-message` for the same: the strings are in commit messages too.
+  2. `--replace-text ~/scrub_replacements.txt` (18 files / 15 commits) AND `--replace-message`
+     with the same file — the strings are in commit messages too, not just blobs.
   3. Delete blobs for the six ever-tracked binaries: `QC/trace_17_09_24430.gpkg`, `_v2.gpkg`,
      `QC/competing_pipe_review.gpkg`, `QC/diagnostics_downstream.gpkg`,
      `QC/recheck_v2_4parcels.gpkg`, `QC/validation_traces.gpkg` — real network data, and two
-     embed the name in layer names (un-text-scrubbable).
+     embed the name in layer names (un-text-scrubbable). **Safe to delete — checked
+     2026-07-26:** every remaining reference in the tracked tree is an *output* path the code
+     writes (`config.yaml:308`, `run_seam_align.py`, `run_validation_traces.py`) or historical
+     narrative in `decision_log.md`. Nothing reads these files as an input, so dropping the
+     blobs leaves no dangling dependency.
   4. Verify `git grep -i -E "<name1>|<name2>" $(git rev-list --all)` is empty, then push to a
      **new public repo**; tag + Zenodo from there.
   - **Hazard:** untracked `run_meter_service_areas_from_coords.py` contains the name — scrub
