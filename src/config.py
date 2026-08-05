@@ -69,7 +69,9 @@ def load_config(config_path: str) -> dict:
     # blocks are only needed for block/hybrid methods; validation paths point at a
     # sibling project used only by --sweep). The consuming module checks existence.
     for key in ["census_blocks_shapefile", "validation_truth_polygons",
-                "validation_points", "qa_review_decisions"]:
+                "validation_points", "qa_review_decisions",
+                "force_main_shapefile", "force_main_joins", "force_main_decisions",
+                "terminal_facilities"]:
         if cfg["inputs"].get(key):
             cfg["inputs"][key] = str((base / cfg["inputs"][key]).resolve())
     for key in ["output_polygon", "flags_report", "flag_maps_pdf",

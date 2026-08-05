@@ -1831,3 +1831,278 @@ RED by perturbing a generator constant, and the git-tracking test replaced an ea
 `Path.exists()` version that could not have detected the failure it claimed to guard (data on
 a developer's disk looks identical to data in the repo — only `git ls-files` distinguishes
 them, and `.gitignore` blanket-ignores `data/`).
+## 2026-07-30 — Force mains, steps 1–2: ingest and junction review (no topology change)
+
+the city's `snForceMain` layer (1101 lines, EPSG:2264) arrived. This closes the first half of
+roadmap item 7's real gap — not "a pumped target gives a wrong polygon" (retracted 2026-07-02),
+but a trace that must cross a force main mid-basin stopping at the discharge. Full plan:
+`docs/force_main_integration_plan.md`.
+
+**Decision:** the layer changes nothing on its own. `src/force_mains.py` + `run_force_mains.py`
+report where force mains *would* attach and stop there; `graph_builder` is untouched.
+**Rationale:** only **187 of 2202** force-main endpoints sit within 1 ft of a gravity endpoint,
+and the terminus-to-gravity distance curve is smooth (157 connected at 5 ft, 170 at 10, 225 at
+25, 283 at 100) — no natural cutoff, so auto-snapping would be a guess dressed as a method.
+
+**Decision:** direction is inferred from the existing directed gravity graph — a terminus on a
+node with `out_degree == 0` is a wet well, one with `out_degree > 0` is a discharge.
+**Rationale:** the layer ships no FROMMH/TOMH, no inverts, and its Z is 0.0 on **6297 of 6303
+vertices**. Geometry direction is not a documented convention for pressurized mains. The gravity
+graph is the only trustworthy signal available. Verified by hand on component FM:00048: the
+wet-well end has 1 gravity pipe ending / 0 starting; the discharge end has 0 ending / 1 starting
+— a headwater that starts from nowhere because a force main feeds it.
+
+**Grounding:** all four stations named in `Sampling_Locations`' `LiftStatio` column (Heritage
+Drive, Lutravil, East End, Garrett Rd) classify as `wetwell` at their nearest force-main
+terminus. Their sampling points sit 32–158 ft from that terminus, though — the sampling manhole
+is not the wet well, because a force main begins at a pump discharge flange, which is a station,
+not a manhole. **Open request to the city: the pump/lift-station point layer**, which would
+replace this inference with a direct lookup.
+
+**Decision:** inclusion filter is Active + public + ≥4 in (Grace, 2026-07-30). 1101 read, 945
+kept (53.9 mi): dropped 9 non-Active, 118 `OWNER=PVT`, 9 `DIAMETER=0`, 20 under 4 in.
+**Rationale:** private grinder-pump laterals serve single buildings already captured by the
+parcel buffer, and add ~110 tiny components of review noise. `DIAMETER=0` is missing data, not a
+small pipe, so it is reported under its own reason rather than folded into the diameter cut.
+
+**First run (10 ft snap, 500 ft review radius):** 78 components, 212 termini.
+**31 of 78 components resolve with no review needed**; the rest are `no_discharge` (12),
+`unconnected_only` (12), `cyclic` (7), `no_wetwell` (7), `multi_discharge` (7), `isolated` (2).
+Outputs: `QC/force_main_review.csv` (212 rows, every `decision` blank) and
+`output/force_main_junctions.gpkg` (`fm_pipes`, `fm_termini`, `fm_junctions` — the last draws
+each proposed junction as a line whose length IS the snap gap).
+
+**Decision:** the review CSV reuses the `qa_review_decisions.csv` column schema exactly, so
+accepted rows feed `snap_endpoints` pass 3 unchanged. **Rationale:** `node_layer` owns the "one
+topology everywhere" invariant; a parallel snap path for force mains would break it.
+
+**Two traps found and handled.**
+(1) `FACILITYID` is **not unique across layers** — 218 ids in the force mains also exist in the
+gravity mains. Review rows emit `FM:00018`, never a bare id, or a human and any id-keyed lookup
+would silently conflate the two.
+(2) Pass 3 merges *every* cluster inside `radius_ft`, so `radius_ft` is pre-filled only for gaps
+up to 25 ft. A wide candidate ships with it blank, falling back to the 5 ft default that reaches
+nothing and raises — a loud failure rather than a quiet one that swallows a neighbourhood.
+
+**Known impact when this is eventually wired in:** 57 discharge nodes land in the graph, and
+**9 of the 25 validation sites have a discharge in their upstream reachable set** (Tracts 16.04,
+17.12, 18.02_old, 18.06, 20.29, 20.20, 19, 1.02, 18.02). The other 16 must come out identical.
+The IoU gate is diagnostic, not pass/fail: the truth polygons were very likely drawn
+gravity-only, so a correct force-main trace can legitimately lower IoU.
+
+`tests/test_force_mains.py` — 13 tests, all passing; full suite 117 passing.
+
+**Correction (same day, found in review):** `build_topology` first used `nx.Graph()`, which
+silently collapsed **3 of 945** force mains — parallel mains between the same endpoint pair, which
+is standard practice out of a lift station. That dropped their `pidx`, undercounted pipes and
+length, and hid the cycle that makes a component's interior direction ambiguous, so a dual main
+could read as `resolved` when it isn't. Now `nx.MultiGraph`, for exactly the reason
+`graph_builder` gives for its `MultiDiGraph`. Termini 212 -> 210, ambiguous review rows 101 -> 99.
+
+**Read the result by length, not by component count.** 31 of 78 components resolve, but that is
+only **19.5 of 53.9 mi (36% of length)**. The resolved set skews small and simple; `cyclic` is
+7 components holding **31% of total length**, led by comp 8 at 173 pipes / 14.0 mi. And three of
+the four ground-truth stations (Lutravil, East End, Garrett Rd) sit in unresolved components —
+only Heritage Drive is in a `resolved` one. The big pumped systems, the ones that actually move a
+sewershed, are concentrated in the buckets the rule could not settle. The runner now prints
+mileage share plus the five longest unresolved components so review effort goes there first.
+
+**Post-`/code-review` fixes (same day).** Both review axes found real defects; the code below is
+what shipped.
+
+*Second silent MultiGraph bug, from the fix for the first.* `termini` tested `degree(n) == 1`,
+which is not "one free end" on a MultiGraph — two parallel mains ending at one cluster give it
+degree 2, so a real free end was dropped, and a self-loop inflated degree the same way. Exactly
+the case MultiGraph was adopted for. Now `len(set(neighbors(n)) - {n}) == 1`. Recovered 3 hidden
+termini: review rows 210 -> 213, component verdicts unchanged.
+
+*A closed ring produced zero review rows.* No degree-1 node means no terminus, so a pure loop
+vanished from the review file while still appearing in the verdicts, the runner counts and
+`fm_pipes` — unreviewable network. `review_rows` now emits one explicit ring row per
+terminus-less component.
+
+Also: `load_force_mains` / `to_geopackage` / `write_qc_gpkg` had no tests, against `AI_HOME/CLAUDE.md`'s
+gate that data transforms get at least a smoke test — added, 24 tests total, full suite 128 passing;
+`classify_termini` hand-rolled `NodeIndex` internals instead of calling `graph_builder.nearest_node`
+like every other caller; `build_topology` raised a cKDTree shape error on an empty frame where its
+siblings early-return; the verdict vocabulary lived in three places and had already drifted
+(`no_wetwell` missing from the docstring), now `VERDICT_UNATTACHED` / `VERDICT_DIRECTION_UNRESOLVED`
+at module top; the pre-filled-radius cutoff was hardcoded, now
+`parameters.force_main_max_prefilled_radius_gap_ft`; review rows now carry `fm_end` (which end of
+the main), which the plan asked for and the first cut omitted.
+
+**Declined, with reason.** The spec review flagged that `resolved` ignores the plan's "three or
+more gravity-touching termini go to review" rule, citing comp 18. The plan line was wrong, not the
+code: it conflated "three termini" with "three discharges". Comp 18 is two wet wells and one
+discharge — two lift stations pumping to a shared main, an ordinary configuration that BFS from
+the single discharge orients correctly. What is genuinely undecidable is more than one discharge,
+which `multi_discharge` already catches. The plan line is corrected rather than the verdict rule.
+
+## 2026-08-01 — Force-main manual joins (Grace's snap decisions applied)
+
+**Decision:** Grace's three explicit snap instructions applied as
+`QC/force_main_joins.csv`, read via new optional `inputs.force_main_joins` and applied as pass 2
+of the force-main endpoint clustering (mirroring `snap_endpoints` pass 3). A join reaching fewer
+than two distinct clusters raises rather than silently no-opping.
+
+**What they turned out to be:** all three ("snap 2033 to 00308", "snap 2027 to 2049",
+"snap 00941 to 01210") are **force-main to force-main**, not force-main to gravity — breaks
+inside the pressurized network at 6.03, 4.18 and 14.18 ft, invisible to the 1 ft clustering.
+
+**Result — the repair-order hypothesis, confirmed on real data.** Three joins totalling ~24 ft of
+gap dissolved six unresolved components:
+
+| | before | after |
+|---|---|---|
+| components | 66 | 63 |
+| resolved | 33 | **36** (38% of length) |
+| no_discharge | 11 | **8** |
+| no_wetwell | 6 | **3** |
+| review rows | 174 | **168** |
+
+The questions did not get answered — they stopped existing. Repairing intra-layer connectivity
+before asking about inter-layer junctions is now an evidence-backed sequencing rule, recorded in
+`SewerNetworkDiagnostic/docs/field_patterns_from_review.md` as Pattern 5.
+
+**Not applied, still outstanding:** (1) the gravity half of the 00941 instruction — "split 04093
+and snap to 04080" — belongs in `qa_review_decisions.csv` via `pipe_splits.py`; (2) every
+force-main-to-gravity accept (2260/2262/2264 "don't need all three", 00019 "snap", 00517 "maybe"),
+which needs the graph-wiring step that does not exist yet.
+
+**Also fixed:** the review CSV loader now falls back utf-8-sig -> cp1252. Grace's returned file was
+cp1252 (Excel) and killed a utf-8 read on byte 0x92, a curly apostrophe in "don't". A review loop
+that cannot survive Excel is not a review loop. Test uses that exact byte. 136 tests passing.
+
+**Still unfixed, and it silently loses review work:** her decisions arrived in a SECOND column also
+headed `decision` (pandas renames it `decision.1`); the original column is blank, so a
+header-keyed loader reads zero decisions and reports success. `qa_review.load_review_decisions`
+needs duplicate-header validation before the next review round.
+
+## 2026-08-02 — Terminal facilities: Grace's satellite-compiled layer replaces the inference
+
+**Input:** `sewershed-lab/data/WWTP_LS.xlsx` — 34 points Grace read off Google Maps
+(Name + "lat, lon"). 2 treatment plants, 31 lift stations, 1 water tank. All 34 parse, all inside
+the the city bbox, no duplicate coordinates.
+
+This is the pump-station layer the 2026-07-30 plan said we would have to ask the city for. Grace
+made it herself in an afternoon, which is worth noting: the data request was avoidable.
+
+**Validation — the inferred wet-well rule is now grounded, not just self-consistent.**
+Of the 26 lift stations with a force-main terminus within 200 ft, **24 sit on a terminus the
+out-degree rule had already called a wet well** (median distance 34 ft). The rule was previously
+supported only by its own 35/45 bipolar-pattern consistency; it now has independent confirmation
+from 24 human-verified pump-station locations.
+
+**Decision:** `src/terminal_facilities.py`. A confirmed plant sets a terminus to `terminal` and its
+component to the new verdict `terminates_at_facility`; a confirmed station sets `wetwell`.
+**Rationale:** a component reaching a treatment plant is finished, not broken — `no_discharge`
+reported the correct answer as a failure.
+
+**Decision:** two tolerances — `terminal_facility_plant_tol_ft: 1000`,
+`terminal_facility_station_tol_ft: 200`. **Rationale:** a point dropped from satellite imagery
+marks the middle of the site. A lift station is a small structure (median 34 ft to its terminus);
+a plant is a campus (South the city WRF 842 ft, North the city 242 ft). One tolerance cannot serve both.
+
+**Decision:** a station matched to a terminus the rule called a *discharge* is flagged
+`facility_direction_conflict`, never silently flipped. **Rationale:** both readings cannot be right,
+and overriding would destroy the only signal that something is wrong. Rate: 1 of 26 (Lick Creek).
+
+**Effect on the worklist:**
+
+| | before | after |
+|---|---|---|
+| need no review | 36 of 63 | **38 of 63** |
+| **share of length settled** | 38% | **51%** |
+| no_discharge | 8 comps, 9.9 mi | **8 comps, 2.9 mi** |
+| terminates_at_facility | — | **2 comps, 7.0 mi** |
+| isolated | 2 | **0** |
+| fm_direction_ambiguous rows | 73 | **62** |
+
+**Five QC findings only the facility layer could expose:** four lift stations with no force main
+within 200 ft — Cedar Creek (676 ft), ENO (3752 ft), Geer St (3707 ft), Heritage (591 ft) — and
+the Lick Creek direction conflict. A pump station with no force main is a contradiction in terms:
+either the pressurized main is missing from the layer or the point is misplaced. **Heritage is one
+of the 24 validation sites** (Heritage Drive P.S., asset 22942), so this one matters for IoU.
+
+**Bug caught in the same session, worth remembering.** Confirmed termini were given
+`contact="facility"`, but the verdict roll-up counted only `contact == "connected"` — so
+confirming a wet well *removed* it from the count, and `no_wetwell` jumped 3 -> 15 while `resolved`
+fell 36 -> 24. The numbers looked like a finding about the network; they were an artifact of adding
+a new enum value and not updating every place that tested the old one. Now `CONFIRMED_CONTACTS`,
+one constant, with a regression test.
+
+`tests/test_terminal_facilities.py` — 11 tests. Full suite 147 passing.
+
+**Coordinate-transposition guard.** A "lon, lat" paste puts every facility off West Africa and
+matches nothing, which reads identically to "no facilities near the network." The +/-90 check misses
+it for the city (-78.9 is a legal latitude), so there is a second heuristic: every row having
+|lat| > |lon| raises. Stated assumption — continental-US coordinates; northern Europe would trip it
+legitimately, so the error says how to proceed rather than just refusing.
+
+## 2026-08-03 — Station-adjacent discharge rule, from the map-review trend
+
+**Decision:** `flag_station_adjacent_discharges()` added to `src/force_mains.py`, wired into
+`run_force_mains.py` after facility matching, before verdicts. Catches the East End / Geer St
+misread algorithmically: a terminus reading "discharge" with contact="connected" gets downgraded
+to "candidate" (out of `CONFIRMED_CONTACTS`) when its incident force-main pipe is
+`<= force_main_station_adjacent_max_pipe_ft` (25 ft) AND a confirmed STATION facility sits within
+`terminal_facility_station_tol_ft` (200 ft, existing key, reused). New review flag
+`fm_station_adjacent_discharge`. Both repos get the config key; both vendored.
+
+**Why it matters:** without this, a component built entirely from a real wetwell plus this misread
+reads `resolved` and never surfaces for review at all — confirmed as a real prior failure on
+component 63 (East End) before the fix (`test_flagged_component_no_longer_silently_resolves`).
+
+**Result on the real network:** 5 caught — FM:2029 (both ends, the Geer St stub), FM:2157,
+FM:00420, FM:01289 (East End). Two of these were NOT in the 4 cases found by eye during the
+2026-08-02/03 map review: `FM:2157` (3.5 ft) and `FM:00420` (1.9 ft) are genuinely sub-4-ft stubs
+invisible at map render scale — the algorithmic check caught what pixel-level review missed. Grace
+had independently marked FM:2157 "no snap, dangly" in her review pass before this rule ran, which
+the rule now confirms rather than contradicts. FM:00243 (the other Geer St misread, q41) is
+correctly NOT caught — that pipe itself isn't short, so the rule stays scoped to what it was built
+to catch rather than over-firing on the general "adjacent to a station" case.
+
+**Effect:** resolved 36->39, review rows 63->60 (5 new caught, but 2 already-decided rows off the
+review file via `settle_reviewed_rows` masked part of the net change). 122 of 182 rows now settle
+without a look — 81 auto-accepted, 41 already decided by Grace.
+
+Tests: 6 new, `tests/test_force_mains.py`, full suite 160 passing.
+
+## 2026-08-03 (cont.) — Confusing-question fix, and Grace's third decisions batch
+
+**Fixed:** a row already confirmed by a facility match (contact="facility") still asked "which end
+of this system is the pump station?" whenever the SYSTEM overall was unresolved for a different
+reason. Grace hit this on FM:2607 (Snow Hill Lift Station) — the row was answered by the facility
+layer, but the comment asked the question anyway because system 31 is `multi_discharge` due to a
+different terminus (2046/2048). `review_rows` now checks `contact == "facility"` first and says
+"already confirmed... system's open problem is elsewhere" instead. Regression test added
+(`test_facility_confirmed_terminus_is_not_asked_which_end_is_the_pump_station`). 161 passing.
+
+**17 decisions processed from the third review round.** Findings, not yet applied to topology
+(still queued behind the graph-wiring step, same as every prior snap/no-snap call):
+
+- **FM:00438** — "ignore For network connectivity only pipes... fall within WWTP" — component 58
+  already reads `terminates_at_facility`; her read confirms it needs no snap.
+- **FM:00018** — gravity-side edit request: split GM 02418 at MH 02938, connect to GM 02420, then
+  to FM 0018/2020. Checked against the data: MH 02938 exists (2,049,329.8, 853,242.5) and GM
+  02418's `FROMMH`/`TOMH` attribute already claims 02949->02938 — so the attribute says this
+  connection exists, but (per this repo's geometry-first rule) the drawn geometry may not actually
+  reach that point. Needs Grace to confirm before this goes into `qa_review_decisions.csv`.
+- **FM:00247** — suspects FM 00228/00227 face the wrong way or don't exist. Checked: both exist,
+  Active, correct diameter (16"), but sit **11,000+ ft** from anything in system 9. Likely a
+  different part of the map than what she was looking at — needs her to point at specific
+  coordinates rather than guessing.
+- **FM:2497** — "Flow comes from Fletchers Mill Lift Station?" — checked distance: **1918 ft**,
+  well past the 200 ft station tolerance, which is why it never auto-matched. Plausible but
+  genuinely far; her judgment call stands.
+- **Three unlisted facilities surfaced**: Old Oxford Rd Lift Station (system 12, ties FM:00216,
+  FM:2036, FM:00280 together), 751 Secondary Pump Station (system 28, explains why FM:2580/2585/
+  2586 weren't auto-caught by the station-adjacent rule — no facility point exists for the
+  algorithm to check against), Glenn Crossing LS (system 67, previously confirmed). None are in
+  `data/WWTP_LS.xlsx`. Offered to add them if Grace wants the algorithm to auto-confirm these next
+  run instead of asking again.
+- **FM:00145** — "weird segment, maybe supposed to be GM" — data-quality flag, not actionable
+  without more direction from Grace.
+
+No code changes from these findings beyond the comment fix above — recorded here so the specifics
+aren't lost before the graph-wiring step exists to act on them.

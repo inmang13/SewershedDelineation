@@ -26,6 +26,33 @@ inputs:
   # the file absent to run without prior review.
   qa_review_decisions: "QC/qa_review_decisions.csv"
 
+  # Pressurized (force) mains. OPTIONAL — leave null and the pipeline runs
+  # gravity-only exactly as it always has, which is how the published median
+  # IoU of 0.875 was earned. Set it and run_force_mains.py will report where
+  # force mains would attach to the gravity network; nothing attaches until a
+  # reviewer accepts junctions. the city's layer is not redistributable, so this
+  # stays null in the public repo and is set in sewershed-lab.
+  force_main_shapefile: null
+
+  # Human-confirmed repairs to breaks INSIDE the pressurized network (two force
+  # mains that should be one, drawn a few feet apart). Applied as pass 2 of the
+  # force-main endpoint clustering. Optional - a missing file means no repairs.
+  # These matter more than their size suggests: a break splits one pumped system
+  # into two components, and each half then reports a spurious no_discharge.
+  force_main_joins: null
+
+  # A previously reviewed copy of the review file. Rows Grace has already ruled
+  # on are matched by force-main terminus coordinate and taken off the list, so
+  # a re-run does not ask the same question twice. Optional.
+  force_main_decisions: null
+
+  # Terminal facilities - treatment plants and pump/lift stations. Optional.
+  # Accepts .xlsx/.csv with Name + Coords ("lat, lon", the Google Maps paste
+  # format) or any geospatial format. A plant point makes termination a RESULT
+  # rather than a defect; a lift-station point PINS the wet well instead of
+  # inferring it from gravity out-degree.
+  terminal_facilities: null
+
 parameters:
   crs: "EPSG:2264"                  # NAD83 / NC State Plane, US survey feet
   node_snap_tolerance_ft: 1.0       # endpoints within this distance merged into one node
@@ -35,6 +62,80 @@ parameters:
   review_match_radius_ft: 50.0      # proximity fallback for matching review decisions to flags whose id shifted (e.g. component numbering)
   pipe_buffer_distance_ft: 50.0     # thin QC ribbon for low_population_match coverage check
   selection_radius_ft: 50.0         # buffer around pipes for population-unit selection (swept in validation)
+
+  # Force mains (src/force_mains.py, run_force_mains.py). Read only when
+  # inputs.force_main_shapefile is set.
+  #
+  # The delivered layer is NOT snapped to the gravity network: only 187 of 2202
+  # force-main endpoints sit within 1 ft of a gravity endpoint, and the
+  # terminus-to-gravity distance curve is smooth (157 connected at 5 ft, 170 at
+  # 10, 225 at 25, 283 at 100) — there is no natural cutoff, so the tolerance is
+  # a judgment call and every accepted junction is logged with its distance.
+  # 10 ft is the conservative choice: fewer components attach automatically, and
+  # the rest are reviewed rather than guessed at.
+  force_main_component_tol_ft: 1.0    # FM-to-FM endpoint clustering (mirrors node_snap_tolerance_ft)
+  force_main_snap_tolerance_ft: 10.0  # FM terminus -> gravity node, auto-accepted
+  force_main_review_radius_ft: 500.0  # reported as a candidate for review, NOT accepted
+  # Widest gap that gets a pre-filled merge radius in the review file. Pass 3
+  # merges EVERY cluster inside radius_ft, so a pre-filled 300 ft radius on a
+  # 500 ft candidate would swallow a neighbourhood if accepted unread. Past this,
+  # radius_ft ships blank and falls back to qa_review's 5 ft default, which
+  # reaches nothing and raises - a loud failure instead of a quiet one.
+  force_main_max_prefilled_radius_gap_ft: 25.0
+  # A junction candidate whose gap is this small is the same point twice - there
+  # is no judgement to make, so it is accepted and taken off the review list
+  # (logged to outputs.force_main_settled). Direction questions are never
+  # auto-accepted, however small the gap: the connection being obvious says
+  # nothing about which way flow runs through the system.
+  force_main_auto_accept_ft: 0.1
+  # Facility match tolerances. Two, because a point dropped from satellite
+  # imagery marks the middle of the site: a lift station is a small structure
+  # (measured median 34 ft to its force-main terminus) but a plant is a campus
+  # (South the city WRF 842 ft, North the city 242 ft). One tolerance cannot serve both.
+  terminal_facility_plant_tol_ft: 1000.0
+  terminal_facility_station_tol_ft: 200.0
+  # Widest incident pipe, in feet, that still counts as "short" when checking
+  # for the station-adjacent-discharge misread (a wet well joined to a second
+  # manhole by a few feet of gravity pipe reads as a discharge because flow
+  # continues past it). Confirmed on the city's network at East End and Geer St
+  # (2026-08-02/03 map review) - every real case was well under this. A row
+  # only gets caught when BOTH this AND terminal_facility_station_tol_ft match,
+  # so raising this alone won't flag a real long trunk discharge.
+  force_main_station_adjacent_max_pipe_ft: 25.0
+  force_main_include:
+    lifecycle: ["Active"]             # 8 Inactive segments excluded
+    exclude_owner: ["PVT"]            # 119 private grinder-pump laterals
+    min_diameter_in: null             # no flat size cut. A flat >=4 in rule threw away
+                                      # 20 city-owned small mains, including 00243 - the
+                                      # only main serving the Geer St lift station.
+    # Instead: small CITY-OWNED mains are kept unless they dangle. A component
+    # counts as a dangling stub only if it is BOTH shorter than
+    # small_stub_max_component_ft in total AND has no end within
+    # force_main_snap_tolerance_ft of the gravity network. Both conditions matter -
+    # a short component that touches gravity is a real connector, and a long one
+    # that touches nothing is a snap gap to investigate, not litter.
+    #
+    # The test is per COMPONENT, never per pipe: pipe 2467 is 24.5 ft and would
+    # fail any per-pipe length rule, but it is one segment of a healthy 909 ft
+    # nine-pipe system. Private small mains are already gone via exclude_owner.
+    small_diameter_in: 4
+    small_stub_max_component_ft: 25
+    # Case-insensitive substrings matched against COMMENT. A bypass port line is
+    # a portable-pump connection used during maintenance - it carries no routine
+    # flow, so leaving it in fabricates connectivity that exists only when a crew
+    # is on site. Each pattern is reported separately in the drop report, so a
+    # pattern that matches nothing is visible rather than silently inert.
+    # Portable/temporary pump piping. Deliberately does NOT match the meter
+    # bypasses ("flow meter bypass", '36" Sewer Meter Bypass Line') - a meter
+    # bypass carries real flow when the meter is offline, so it is live
+    # conveyance, not a maintenance connection. Kept in as of 2026-08-01.
+    exclude_comment:
+      - "bypass port"        # "bypass port line"
+      - "by-pass port"       # hyphenated variant; substring match is literal
+      - "bypass pumping"     # "20181119-cw: bypass pumping line"
+      - "by-pass pumping"    # "By-Pass Pumping Port"
+      - "bypass pump pipe"   # "20181119-cw:  for bypass pump pipe"
+      - "emergency bypass"   # "Emergency Bypass Connection"
 
   # Midspan-junction splits (2026-07-03): T-junctions digitized without splitting
   # the receiving main (lateral endpoint and/or manhole on a pipe's interior) are
@@ -306,6 +407,16 @@ outputs:
   # CSV's decision column; a later pass consumes it (qa_review pattern).
   competing_review_csv: "QC/competing_pipe_review.csv"
   competing_review_gpkg: "QC/competing_pipe_review.gpkg"
+
+  # Force-main junction review (run_force_mains.py). Same qa_review_decisions
+  # column schema, so accepted rows feed snap_endpoints pass 3 unchanged. The
+  # gpkg's fm_junctions layer draws each proposed junction as a line whose
+  # length IS the snap gap — open that one first.
+  force_main_review: "QC/force_main_review.csv"
+  force_main_settled: "QC/force_main_settled.csv"   # rows taken off the review list, and why
+  # The still-open review rows as points, for opening straight in ArcGIS/QGIS.
+  force_main_review_shp: "output/force_main_review.shp"
+  force_main_junctions: "output/force_main_junctions.gpkg"
 
   # Demographic join phase
   demographics_csv: "output/demographics/sewershed_demographics.csv"
