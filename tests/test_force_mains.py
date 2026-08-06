@@ -699,3 +699,67 @@ def test_no_facilities_layer_leaves_everything_unflagged():
     assert report.empty
     assert not out.station_adjacent.any()
     pd.testing.assert_series_equal(out.contact, termini.contact)
+
+
+# ---------------------------------------------------------------------------
+# Reviewer direction rulings — "this end is the pump station, whatever the rule says"
+# ---------------------------------------------------------------------------
+
+def _one_ambiguous_station():
+    """
+    The Geer St shape: the wet-well manhole also passes a gravity main through
+    it, so gravity still flows out of the node the force main lands on and the
+    out-degree rule calls that end a discharge. Both ends then read as
+    discharges and the system can't be settled.
+    """
+    G = _gravity({1: (0, 0), 2: (200, 0), 3: (200, 300),
+                  4: (600, 0), 5: (800, 0)},
+                 [(1, 2), (2, 3), (4, 5)])
+    fm = _fm([[(200, 0), (600, 0)]], fids=["FM01"])
+    topo = build_topology(fm, 1.0)
+    termini = classify_termini(topo, G, build_node_index(G), 10.0, 500.0)
+    return G, fm, topo, termini
+
+
+def test_a_reviewer_can_name_the_pump_station_the_rule_got_wrong():
+    from force_mains import apply_direction_overrides
+    G, fm, topo, termini = _one_ambiguous_station()
+    assert component_verdicts(topo, termini, fm).verdict.iloc[0] == "multi_discharge"
+
+    termini2, log = apply_direction_overrides(
+        termini, [{"x": 200.0, "y": 0.0, "classification": "wetwell",
+                   "comment": "this is the station"}], 25.0)
+
+    assert log.was.iloc[0] == "discharge" and log.now.iloc[0] == "wetwell"
+    assert component_verdicts(topo, termini2, fm).verdict.iloc[0] == "resolved", \
+        "naming the wet well settles the system"
+
+
+def test_a_ruling_that_matches_nothing_raises_instead_of_being_ignored():
+    """Geometry moved out from under the ruling — silently dropping it is worse."""
+    from force_mains import apply_direction_overrides
+    G, fm, topo, termini = _one_ambiguous_station()
+    with pytest.raises(ValueError, match="matched no force-main terminus"):
+        apply_direction_overrides(
+            termini, [{"x": 99999.0, "y": 0.0, "classification": "wetwell",
+                       "comment": ""}], 25.0)
+
+
+def test_a_ruling_changes_only_the_nearest_terminus():
+    """Two ends of one station can both sit inside tolerance — don't flip both."""
+    from force_mains import apply_direction_overrides
+    G, fm, topo, termini = _one_ambiguous_station()
+    termini2, log = apply_direction_overrides(
+        termini, [{"x": 200.0, "y": 0.0, "classification": "wetwell",
+                   "comment": ""}], 10_000.0)   # absurdly wide on purpose
+    assert len(log) == 1
+    assert (termini2.classification == "wetwell").sum() == 1, \
+        "a wide radius must not invent a second wet well"
+
+
+def test_no_rulings_leaves_the_classification_untouched():
+    from force_mains import apply_direction_overrides
+    G, fm, topo, termini = _one_ambiguous_station()
+    termini2, log = apply_direction_overrides(termini, [], 25.0)
+    assert log.empty
+    assert termini2.classification.tolist() == termini.classification.tolist()

@@ -54,6 +54,15 @@ inputs:
   # review stays invisible to a trace, and run_force_mains.py reports how much.
   force_main_edges: null
 
+  # A reviewer's ruling on which end of a force-main system is the pump station.
+  # The out-degree rule reads a terminus as a discharge whenever gravity still
+  # flows out of the node it lands on, which is wrong at a lift station whose wet
+  # well also passes a gravity main through it. No tuning fixes that - the
+  # evidence points both ways - so a person decides. This is also the only way to
+  # close out a facility_direction_conflict, since terminal_facilities refuses to
+  # flip a contradiction on its own. Columns: x, y, classification[, comment].
+  force_main_direction_overrides: null
+
   # Terminal facilities - treatment plants and pump/lift stations. Optional.
   # Accepts .xlsx/.csv with Name + Coords ("lat, lon", the Google Maps paste
   # format) or any geospatial format. A plant point makes termination a RESULT
@@ -116,6 +125,10 @@ parameters:
   # pipe edit. Over this, the load RAISES rather than skipping - a silent skip
   # would drop a whole pumped basin out of every trace with no signal.
   force_main_edge_snap_tol_ft: 10.0
+  # Match radius for a reviewer's direction ruling. Generous because the ruling
+  # is recorded from a map, not from the exact terminus vertex; only the NEAREST
+  # terminus inside it is changed, so a wider radius cannot flip two ends at once.
+  force_main_direction_override_tol_ft: 25.0
   force_main_include:
     lifecycle: ["Active"]             # 8 Inactive segments excluded
     exclude_owner: ["PVT"]            # 119 private grinder-pump laterals

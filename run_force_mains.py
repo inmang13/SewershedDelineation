@@ -29,6 +29,7 @@ from force_mains import (                                       # noqa: E402
     component_verdicts, review_rows, write_qc_gpkg, load_manual_joins,
     prune_small_stubs, settle_reviewed_rows, write_review_shapefile,
     flag_station_adjacent_discharges, VERDICT_SETTLED,
+    load_direction_overrides, apply_direction_overrides,
 )
 from terminal_facilities import (                                # noqa: E402
     load_facilities, match_facilities, apply_to_termini, facility_flags,
@@ -128,6 +129,24 @@ def main():
         n_ok = int((matches.status == "matched").sum())
         print(f"  matched to a force-main terminus: {n_ok} of {len(matches)}")
         termini = apply_to_termini(termini, matches)
+
+    # A reviewer's ruling outranks both the rule and the facility match - it is
+    # the only thing that can close out a facility_direction_conflict, where the
+    # evidence genuinely points both ways. Applied after the facility match so it
+    # overrides that too, and before the verdicts so the roll-up sees it.
+    termini, overridden = apply_direction_overrides(
+        termini, load_direction_overrides(cfg),
+        params.get("force_main_direction_override_tol_ft", 25.0))
+    if not overridden.empty:
+        print(f"\nReviewer direction rulings applied: {len(overridden)}")
+        for r in overridden.itertuples(index=False):
+            print(f"    ({r.x:.0f}, {r.y:.0f}) {r.was} -> {r.now}"
+                  + (f"  [{r.comment}]" if r.comment else ""))
+
+    # Reported AFTER the rulings, so the conflicts listed are the ones still
+    # open. Printing them first would name a conflict and then resolve it a line
+    # later, which reads as though the ruling did not take.
+    if not facilities.empty:
         for f in facility_flags(matches, termini):
             print(f"  [{f['flag_type']}] {f['name']} ({f['dist_ft']:.0f} ft)")
 

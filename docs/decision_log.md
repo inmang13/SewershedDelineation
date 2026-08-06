@@ -2163,3 +2163,47 @@ the set of pipes upstream of that station's wet well, no extras and nothing miss
 Zero force-main edges close a directed loop. The 29 unwired systems (31.8 mi) stay
 invisible to a trace until reviewed, and the runner prints that gap rather than leaving
 it to be inferred.
+
+---
+
+## 2026-08-06 — Reviewer direction rulings (closing out facility conflicts)
+
+**Decision.** New optional input `inputs.force_main_direction_overrides`: a CSV of
+`x, y, classification[, comment]` where a reviewer names which end of a force-main
+system is the pump station, overriding the out-degree rule and the facility match.
+`force_mains.apply_direction_overrides`, applied after the facility match and before
+the verdicts.
+
+**Rationale.** The direction rule reads a terminus as a discharge whenever gravity
+still flows out of the node it lands on. At a lift station whose wet-well manhole also
+passes a gravity main through it, that reading is wrong and no tolerance change fixes
+it — the evidence genuinely points both ways. `flag_station_adjacent_discharges` catches
+the sub-case where the giveaway is a short stub; this covers the rest, where only a
+person looking at the site can tell.
+
+It is also the only thing that can close out a `facility_direction_conflict`.
+`terminal_facilities.apply_to_termini` deliberately refuses to flip a contradiction on
+its own — that was the right call, because overriding silently destroys the only signal
+that something is off — but it left the conflicts with nowhere to go. Now they have an
+answer path.
+
+**First use — Geer St.** Grace: "FM 00243 should start at MH 61724." FM:00243's start
+sits 6.6 ft from a junction node that GM 08374 flows out of, so it read as a discharge;
+both ends of the system then read as discharges and it could not be settled. Her ruling
+makes the start the wet well. The system went `multi_discharge` → `resolved` and is now
+wired. Note the geometric reading of her instruction would have accomplished nothing:
+FM:00243's start is already 3.0 ft from MH 61724, so moving it would not have changed
+which node it snaps to. The direction was the actual issue.
+
+**A ruling that matches no terminus RAISES.** It means the geometry moved out from under
+a decision, and silently ignoring a reviewer's answer is worse than stopping. Only the
+NEAREST terminus inside the radius is changed, so a generous radius cannot flip both ends
+of one station and invent a second wet well.
+
+**Ordering fix.** Facility conflicts are now printed after the rulings are applied, so
+the list names only conflicts that are still open. Printing them first reported Geer St
+as a conflict and then resolved it on the next line, which read as though the ruling had
+not taken.
+
+**Effect on this network:** systems wired 40 → 41, open review rows 38 → 37. Remaining
+facility conflicts: Lick Creek and Old Oxford Rd, both still needing Grace.

@@ -534,6 +534,92 @@ def classify_termini(topo: ForceMainTopology, G: nx.MultiDiGraph, node_index,
         "contact", "classification"])
 
 
+def load_direction_overrides(cfg: dict) -> list[dict]:
+    """
+    Read `inputs.force_main_direction_overrides` — a reviewer's ruling on which
+    end of a system is the pump station.
+
+    Columns: x, y, classification[, comment]. Returns [] when unset or absent.
+    """
+    path = cfg.get("inputs", {}).get("force_main_direction_overrides")
+    if not path or not Path(path).exists():
+        return []
+    out = []
+    for row in _read_csv_rows(path):
+        cls = (row.get("classification") or "").strip()
+        if not cls:
+            continue
+        if cls not in ("wetwell", "discharge", "terminal"):
+            raise ValueError(
+                f"{path}: classification '{cls}' is not one of "
+                "wetwell / discharge / terminal.")
+        out.append({"x": float(row["x"]), "y": float(row["y"]),
+                    "classification": cls,
+                    "comment": (row.get("comment") or "").strip()})
+    return out
+
+
+def apply_direction_overrides(termini: pd.DataFrame, overrides: list[dict],
+                              tol_ft: float = 25.0
+                              ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Let a reviewer overrule the out-degree rule at a named terminus.
+
+    The direction rule reads a terminus as a discharge whenever gravity still
+    flows out of the node it lands on. At a lift station whose wet-well manhole
+    also passes a gravity main through it, that reading is wrong, and no amount
+    of tuning fixes it — the evidence genuinely points both ways. `flag_station_
+    adjacent_discharges` catches the sub-case where the giveaway is a short stub;
+    this handles the rest, where only a person looking at the site can tell.
+
+    That is also how a `facility_direction_conflict` gets closed out.
+    `terminal_facilities.apply_to_termini` deliberately refuses to flip a
+    contradiction on its own — it flags and moves on — so something has to carry
+    the human's answer, and this is it.
+
+    Matched by COORDINATE within `tol_ft`, for the same reason every other
+    decision file in this pipeline is: component ids and row order both move
+    between runs, a location does not. An override that matches nothing RAISES:
+    it means the geometry moved out from under a ruling, and silently ignoring a
+    reviewer's decision is worse than stopping.
+    """
+    log_cols = ["x", "y", "was", "now", "comment"]
+    if not overrides:
+        return termini, pd.DataFrame(columns=log_cols)
+    if termini.empty:
+        raise ValueError("direction overrides are configured but there are no "
+                         "force-main termini to apply them to.")
+
+    out = termini.copy()
+    tree = cKDTree(np.c_[out.x.astype(float), out.y.astype(float)])
+    rows = []
+    for o in overrides:
+        hits = tree.query_ball_point([o["x"], o["y"]], r=tol_ft)
+        if not hits:
+            raise ValueError(
+                f"direction override at ({o['x']}, {o['y']}) matched no "
+                f"force-main terminus within {tol_ft} ft. The pipe set changed "
+                "under this ruling — check the coordinate against the current "
+                "QC/force_main_review.csv, or remove the row.")
+        # Nearest only: two termini of one station can sit within tolerance of
+        # each other, and flipping both would invent a second wet well.
+        j = min(hits, key=lambda k: (out.x.iloc[k] - o["x"]) ** 2
+                                  + (out.y.iloc[k] - o["y"]) ** 2)
+        i = out.index[j]
+        rows.append({"x": o["x"], "y": o["y"],
+                     "was": out.at[i, "classification"],
+                     "now": o["classification"],
+                     "comment": o["comment"]})
+        out.at[i, "classification"] = o["classification"]
+        # A human ruling is at least as strong as a facility match, so the
+        # terminus counts as attached in component_verdicts. Without this a
+        # `candidate` contact would stay uncounted and the verdict would not move.
+        out.at[i, "contact"] = "facility"
+        if "facility_conflict" in out.columns:
+            out.at[i, "facility_conflict"] = False
+    return out, pd.DataFrame(rows, columns=log_cols)
+
+
 def flag_station_adjacent_discharges(termini: pd.DataFrame, topo: ForceMainTopology,
                                      fm: gpd.GeoDataFrame, facilities,
                                      max_pipe_ft: float, station_tol_ft: float
