@@ -497,41 +497,173 @@ def classify_termini(topo: ForceMainTopology, G: nx.MultiDiGraph, node_index,
     Returns one row per terminus with: comp_id, cluster, x, y, gravity_node,
     dist_ft, gravity_role, in_degree, out_degree, contact, classification.
     """
-    rows = []
+    rows = [_classify_cluster(cid, comp_id, topo, G, node_index,
+                              snap_tol_ft, review_radius_ft)
+            for comp_id, comp in enumerate(topo.components)
+            for cid in topo.termini(comp)]
+    return pd.DataFrame(rows, columns=TERMINUS_COLUMNS)
+
+
+TERMINUS_COLUMNS = [
+    "comp_id", "cluster", "x", "y", "gravity_node", "dist_ft",
+    "gravity_role", "in_degree", "out_degree", "gravity_x", "gravity_y",
+    "contact", "classification",
+]
+
+
+def _classify_cluster(cid: int, comp_id: int, topo: ForceMainTopology,
+                      G: nx.MultiDiGraph, node_index,
+                      snap_tol_ft: float, review_radius_ft: float) -> dict:
+    """
+    Classify ONE endpoint cluster against the gravity graph.
+
+    Shared by `classify_termini` and `add_station_junction_termini` so a station
+    outlet is typed by exactly the same rule as a free end — two code paths here
+    would drift, and the difference would be a silently mistyped wet well.
+    """
+    x, y = topo.xy[cid]
+    gnode, dist = nearest_node(node_index, x, y)
+
+    if dist <= snap_tol_ft:
+        contact = "connected"
+        cls = ("discharge" if G.out_degree(gnode) > 0 else "wetwell")
+    elif dist <= review_radius_ft:
+        contact = "candidate"
+        cls = ("discharge?" if G.out_degree(gnode) > 0 else "wetwell?")
+    else:
+        contact = "none"
+        cls = "no_gravity_contact"
+
+    return {
+        "comp_id":      comp_id,
+        "cluster":      cid,
+        "x":            x,
+        "y":            y,
+        "gravity_node": int(gnode),
+        "dist_ft":      round(dist, 2),
+        "gravity_role": G.nodes[gnode]["role"],
+        "in_degree":    int(G.in_degree(gnode)),
+        "out_degree":   int(G.out_degree(gnode)),
+        "gravity_x":    float(G.nodes[gnode]["x"]),
+        "gravity_y":    float(G.nodes[gnode]["y"]),
+        "contact":      contact,
+        "classification": cls,
+    }
+
+
+def add_station_junction_termini(termini: pd.DataFrame,
+                                 topo: ForceMainTopology, G: nx.MultiDiGraph,
+                                 node_index, facilities,
+                                 station_tol_ft: float, snap_tol_ft: float,
+                                 review_radius_ft: float
+                                 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Recognise a pump-station outlet where two force mains leave one point.
+
+    `ForceMainTopology.termini` counts a cluster as a free end only when exactly
+    one distinct pipe touches it. A station with dual force mains breaks that:
+    two mains leave one point, so the outlet has two neighbours and is not a
+    terminus — even though it is unmistakably where the system starts. The
+    facility matcher only sees termini, so it skips the real outlet and matches
+    whatever free end is nearest instead. At Lick Creek that free end was 125 ft
+    away in an unrelated stretch of the network, and the mismatch surfaced as a
+    `facility_direction_conflict` that no coordinate fix could clear.
+
+    Dual force mains out of a station are standard design, not a defect (Grace,
+    2026-08-06: "we see a couple of these near LS and they should be considered
+    harmless"). So a confirmed station sitting closer to a force-main junction
+    than to any free end pins the wet well AT that junction.
+
+    Only fires when the junction is strictly closer than the nearest free end —
+    where the matcher already has a good answer, nothing changes.
+
+    Returns (termini, added). `added` is the log; empty means no station showed
+    this shape.
+    """
+    log_cols = ["station", "cluster", "comp_id", "dist_ft", "n_mains",
+                "classification", "nearest_free_end_ft"]
+    if facilities is None or len(facilities) == 0 or termini.empty:
+        return termini, pd.DataFrame(columns=log_cols)
+    stations = facilities[facilities.role == "station"]
+    if stations.empty:
+        return termini, pd.DataFrame(columns=log_cols)
+
+    # Every cluster, its component, and how many distinct mains touch it.
+    comp_of, n_nbrs = {}, {}
     for comp_id, comp in enumerate(topo.components):
-        for cid in topo.termini(comp):
-            x, y = topo.xy[cid]
-            gnode, dist = nearest_node(node_index, x, y)
+        sub = topo.graph.subgraph(comp)
+        for c in comp:
+            comp_of[c] = comp_id
+            n_nbrs[c] = len(set(sub.neighbors(c)) - {c})
 
-            if dist <= snap_tol_ft:
-                contact = "connected"
-                cls = ("discharge" if G.out_degree(gnode) > 0 else "wetwell")
-            elif dist <= review_radius_ft:
-                contact = "candidate"
-                cls = ("discharge?" if G.out_degree(gnode) > 0 else "wetwell?")
-            else:
-                contact = "none"
-                cls = "no_gravity_contact"
+    clusters = sorted(n_nbrs)
+    xy = np.array([topo.xy[c] for c in clusters])
+    tree = cKDTree(xy)
+    existing = set(termini.cluster.tolist())
 
-            rows.append({
-                "comp_id":      comp_id,
-                "cluster":      cid,
-                "x":            x,
-                "y":            y,
-                "gravity_node": int(gnode),
-                "dist_ft":      round(dist, 2),
-                "gravity_role": G.nodes[gnode]["role"],
-                "in_degree":    int(G.in_degree(gnode)),
-                "out_degree":   int(G.out_degree(gnode)),
-                "gravity_x":    float(G.nodes[gnode]["x"]),
-                "gravity_y":    float(G.nodes[gnode]["y"]),
-                "contact":      contact,
-                "classification": cls,
-            })
-    return pd.DataFrame(rows, columns=[
-        "comp_id", "cluster", "x", "y", "gravity_node", "dist_ft",
-        "gravity_role", "in_degree", "out_degree", "gravity_x", "gravity_y",
-        "contact", "classification"])
+    rows, added = [], []
+    for s in stations.itertuples(index=False):
+        sx, sy = float(s.geometry.x), float(s.geometry.y)
+        near = tree.query_ball_point([sx, sy], r=station_tol_ft)
+        if not near:
+            continue
+        d = {i: float(np.hypot(xy[i][0] - sx, xy[i][1] - sy)) for i in near}
+        free = [i for i in near if clusters[i] in existing]
+        junc = [i for i in near if n_nbrs[clusters[i]] >= 2
+                and clusters[i] not in existing]
+        if not junc:
+            continue
+        j = min(junc, key=d.get)
+        nearest_free = min((d[i] for i in free), default=float("inf"))
+        if d[j] >= nearest_free:
+            continue                    # the matcher already has a better answer
+        cid = clusters[j]
+        if cid in existing:
+            continue                    # another station already claimed it
+        row = _classify_cluster(cid, comp_of[cid], topo, G, node_index,
+                                snap_tol_ft, review_radius_ft)
+        # This row exists ONLY because a confirmed station sits closer to it
+        # than to any free end, so the station IS the evidence — a point where
+        # the mains of a known pump station converge is that station's outlet,
+        # which is the wet well by definition. Letting the out-degree rule type
+        # it instead re-raises the Geer St mistake: gravity continuing past a
+        # station's own manhole made it read as a discharge, and every such row
+        # came back as a false conflict for Grace to adjudicate one at a time.
+        # The inferred reading is kept alongside, so the disagreement is
+        # auditable rather than erased.
+        row["inferred_classification"] = row["classification"]
+        row["classification"] = "wetwell"
+        row["contact"] = "facility"
+        row["station_junction"] = True
+        rows.append(row)
+        existing.add(cid)
+        added.append({
+            "station":  s.name,
+            "cluster":  cid,
+            "comp_id":  comp_of[cid],
+            "dist_ft":  round(d[j], 1),
+            "n_mains":  n_nbrs[cid],
+            "classification": row["inferred_classification"],
+            "nearest_free_end_ft": (round(nearest_free, 1)
+                                    if np.isfinite(nearest_free) else None),
+        })
+
+    if not rows:
+        return termini, pd.DataFrame(columns=log_cols)
+    out = pd.concat(
+        [termini, pd.DataFrame(rows,
+                               columns=TERMINUS_COLUMNS
+                               + ["inferred_classification", "station_junction"])],
+        ignore_index=True)
+    out["station_junction"] = out.get(
+        "station_junction", pd.Series(False, index=out.index)).fillna(False)
+    # Carry any columns later steps added (station_adjacent, facility_*) so the
+    # appended rows do not read as NaN-flagged.
+    for col, fill in (("station_adjacent", False), ("facility_conflict", False),
+                      ("facility_name", ""), ("facility_role", "")):
+        if col in out.columns:
+            out[col] = out[col].fillna(fill)
+    return out, pd.DataFrame(added, columns=log_cols)
 
 
 def load_direction_overrides(cfg: dict) -> list[dict]:
@@ -953,8 +1085,10 @@ def settle_reviewed_rows(rows: pd.DataFrame, cfg: dict,
     # The system's real problem, if any, is on another terminus and gets its
     # own row; component_verdicts still reports the gap either way, so nothing
     # about the underlying issue goes unreported.
-    facility_confirmed = ((rows.flag_type == FLAG_AMBIGUOUS)
-                          & (rows.contact == "facility"))
+    # Any flag type, not just ambiguous: contact == "facility" means a
+    # confirmed plant or station pinned this end, so there is nothing for a
+    # reviewer to decide here regardless of which question the row was asking.
+    facility_confirmed = rows.contact == "facility"
     settled = pd.concat([settled, rows[facility_confirmed].assign(
         settled_as="facility_confirmed",
         settled_why="this end is already matched to a confirmed facility; "

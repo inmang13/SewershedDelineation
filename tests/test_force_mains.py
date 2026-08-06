@@ -763,3 +763,69 @@ def test_no_rulings_leaves_the_classification_untouched():
     termini2, log = apply_direction_overrides(termini, [], 25.0)
     assert log.empty
     assert termini2.classification.tolist() == termini.classification.tolist()
+
+
+# ---------------------------------------------------------------------------
+# Station outlets where two force mains leave one point
+# ---------------------------------------------------------------------------
+
+def _dual_main_station():
+    """
+    The Lick Creek shape: two mains leave the station and rejoin downstream, so
+    the outlet has two neighbours and is NOT a free end. A free end exists far
+    away on the other side of the system.
+    """
+    G = _gravity({1: (0, 0), 2: (100, 0), 3: (900, 0), 4: (1000, 0)},
+                 [(1, 2), (3, 4)])
+    fm = _fm([[(100, 0), (400, 60)],     # main A out of the station
+              [(100, 0), (400, -60)],    # main B out of the station
+              [(400, 60), (500, 0)],
+              [(400, -60), (500, 0)],
+              [(500, 0), (900, 0)]],     # single pipe onward to the discharge
+             fids=["A", "B", "A2", "B2", "TRUNK"])
+    topo = build_topology(fm, 1.0)
+    termini = classify_termini(topo, G, build_node_index(G), 10.0, 500.0)
+    return G, fm, topo, termini
+
+
+def test_a_station_outlet_with_two_mains_leaving_is_not_a_free_end():
+    """The premise: this is why the matcher missed the real outlet."""
+    G, fm, topo, termini = _dual_main_station()
+    assert not ((termini.x == 100.0) & (termini.y == 0.0)).any(), \
+        "two mains leaving one point means it is not a terminus"
+
+
+def test_a_confirmed_station_pins_the_wet_well_at_the_outlet_junction():
+    from force_mains import add_station_junction_termini
+    G, fm, topo, termini = _dual_main_station()
+    fac = _facility("Dual Main LS", STATION, 106.0, 0.0)
+
+    out, added = add_station_junction_termini(
+        termini, topo, G, build_node_index(G), fac, 200.0, 10.0, 500.0)
+
+    assert len(added) == 1
+    assert added.n_mains.iloc[0] == 2
+    assert added.classification.iloc[0] == "wetwell", \
+        "gravity ends at the station, so the outlet is the wet well"
+    assert ((out.x == 100.0) & (out.y == 0.0)).any(), \
+        "the outlet is now a terminus the facility matcher can see"
+
+
+def test_nothing_changes_when_a_free_end_is_already_closer():
+    """Where the matcher already has a good answer, leave it alone."""
+    from force_mains import add_station_junction_termini
+    G, fm, topo, termini = _dual_main_station()
+    # station parked next to the far free end instead of the outlet
+    fac = _facility("Far LS", STATION, 895.0, 0.0)
+    out, added = add_station_junction_termini(
+        termini, topo, G, build_node_index(G), fac, 200.0, 10.0, 500.0)
+    assert added.empty
+    assert len(out) == len(termini)
+
+
+def test_no_facilities_means_no_synthetic_termini():
+    from force_mains import add_station_junction_termini
+    G, fm, topo, termini = _dual_main_station()
+    out, added = add_station_junction_termini(
+        termini, topo, G, build_node_index(G), None, 200.0, 10.0, 500.0)
+    assert added.empty and len(out) == len(termini)

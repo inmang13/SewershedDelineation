@@ -2225,3 +2225,51 @@ at 58 ft, which it should not have.
 **Fix.** `apply_to_termini` now stamps `facility_dist_ft` (facility → terminus) and the
 conflict flag reports that. The description states the distance in words so it cannot be
 misread again. Lick Creek now correctly reports 125 ft.
+
+---
+
+## 2026-08-06 — A pump station's outlet is not a "free end" (option B)
+
+**The bug.** `ForceMainTopology.termini` counts a cluster as a system end only when
+exactly one distinct main touches it. A station with DUAL force mains breaks that: two
+mains leave one point, so the outlet has two neighbours and is not a terminus — even
+though it is unmistakably where the system starts. The facility matcher only looks at
+termini, so it skipped the real outlet and matched whatever free end was nearest. At Lick
+Creek that free end was 125 ft away in an unrelated stretch of the 16-mile cyclic system,
+and it surfaced as a `facility_direction_conflict` no coordinate fix could clear.
+
+**Scale.** 15 of 34 stations show this shape. For 14 the free end the matcher chose was
+also at the station (13–62 ft), so the match was right but imprecise. Lick Creek was the
+only one reaching into unrelated network.
+
+**Fix.** `add_station_junction_termini` — a confirmed station sitting closer to a
+force-main junction than to any free end adds that junction as a terminus. Runs between
+`classify_termini` and `match_facilities`. Only fires when the junction is strictly
+closer than the nearest free end, so where the matcher already had a good answer nothing
+changes. Grace, 2026-08-06: "we see a couple of these near LS and they should be
+considered harmless" — dual force mains out of a station are standard design.
+
+**These outlets are typed as wet wells, not by the out-degree rule.** The first cut let
+the rule classify them and it went backwards: gravity continuing past a station's own
+manhole made 3 of them read as discharges, raising three NEW false conflicts and pushing
+open review rows from 35 to 43. That is the Geer St mistake again. The row exists only
+because a confirmed station is closer to it than to any free end, so the station is the
+evidence — a point where a known station's mains converge is that station's outlet. The
+inferred reading is kept in `inferred_classification` and every disagreement is printed,
+so nothing is erased.
+
+**`settle_reviewed_rows` widened.** `facility_confirmed` now settles ANY row whose
+contact is `facility`, not just ambiguous ones. A confirmed plant or station pinned that
+end; there is no decision available whatever question the row was asking. This is the
+same complaint Grace raised on 2026-08-05 ("why is this entry even here???").
+
+| | Before | After |
+|---|---|---|
+| Facility direction conflicts | 1 | **0** |
+| Force-main edges wired | 42 | **48** |
+| Termini | 178 | 193 |
+| Open review rows | 35 | 40 |
+
+The 6 extra edges are pumped basins that now reach their discharge. The 5 extra review
+rows are churn from components changing verdict once a wet well was pinned. All 48 edges
+re-verified in isolation; none closes a directed loop.

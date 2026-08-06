@@ -30,6 +30,7 @@ from force_mains import (                                       # noqa: E402
     prune_small_stubs, settle_reviewed_rows, write_review_shapefile,
     flag_station_adjacent_discharges, VERDICT_SETTLED,
     load_direction_overrides, apply_direction_overrides,
+    add_station_junction_termini,
 )
 from terminal_facilities import (                                # noqa: E402
     load_facilities, match_facilities, apply_to_termini, facility_flags,
@@ -119,6 +120,26 @@ def main():
     # Confirmed facilities outrank inference: a plant ends the network, a lift
     # station pins the wet well. Applied before verdicts so the roll-up sees them.
     facilities = load_facilities(cfg)
+
+    # A station with dual force mains has no free end at its outlet - two mains
+    # leave one point, so it reads as a junction. Recognise it before matching,
+    # or the matcher skips the real outlet and takes a distant free end instead.
+    termini, station_junctions = add_station_junction_termini(
+        termini, topo, G, index, facilities,
+        params.get("terminal_facility_station_tol_ft", 200.0),
+        snap_tol, review_rad)
+    if not station_junctions.empty:
+        print(f"\nStation outlets recognised (dual force mains leaving one "
+              f"point - normal design, not a defect): {len(station_junctions)}")
+        for r in station_junctions.itertuples(index=False):
+            note = ("" if str(r.classification).startswith("wetwell")
+                    else f"  ** the gravity rule alone would have called this "
+                         f"'{r.classification}' - taken as the wet well because "
+                         "the station is confirmed here")
+            print(f"    {r.station}: {r.n_mains} mains meet {r.dist_ft:.0f} ft away"
+                  + (f", nearest free end {r.nearest_free_end_ft:.0f} ft"
+                     if r.nearest_free_end_ft is not None else "") + note)
+
     matches = match_facilities(
         facilities, termini,
         params.get("terminal_facility_plant_tol_ft", 1000.0),
