@@ -62,9 +62,22 @@ class TraversalResult:
         self.max_depth    = max_depth
 
     @property
+    def gravity_edges(self):
+        """
+        Contributing edges that are actual gravity pipes.
+
+        Force-main edges carry `pidx=None` — they convey flow but have no
+        geometry in the `pipes` frame and no service laterals, so they must be
+        excluded from anything that buffers pipes or assigns population. Callers
+        that need positional alignment with `pidx_list` must iterate this, not
+        `edges`.
+        """
+        return [e for e in self.edges if e.get("pidx") is not None]
+
+    @property
     def pidx_list(self):
         """Positional pipe indices of all contributing edges (the Phase 5 handoff)."""
-        return [e["pidx"] for e in self.edges]
+        return [e["pidx"] for e in self.gravity_edges]
 
     @property
     def n_edges(self):

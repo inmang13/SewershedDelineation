@@ -33,6 +33,7 @@ from force_mains import (                                       # noqa: E402
 from terminal_facilities import (                                # noqa: E402
     load_facilities, match_facilities, apply_to_termini, facility_flags,
 )
+from force_main_wiring import build_force_main_edges              # noqa: E402
 
 
 def main():
@@ -75,8 +76,11 @@ def main():
                  "parameters.force_main_include.")
 
     # --- Gravity graph (unchanged; force mains are not added) -------------
+    # wire_force_mains=False on purpose: this runner GENERATES the edge list, so
+    # reading last run's copy back in would classify termini against a graph
+    # that already contains the answer.
     print("\nBuilding gravity graph...")
-    G, _pipes = load_graph_from_config(cfg)
+    G, _pipes = load_graph_from_config(cfg, wire_force_mains=False)
     index = build_node_index(G)
     print(f"  {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
@@ -203,6 +207,33 @@ def main():
             print(f"    {ft:<26} {n:>4}")
     except PermissionError:
         print(f"\nCOULD NOT WRITE {review_path} - close it in Excel and re-run.")
+
+    # --- The wiring artifact ---------------------------------------------
+    # Written here, consumed by graph_builder.load_graph_from_config. Only
+    # settled components appear; everything still in review is listed in
+    # `skipped` with the reason, so the gap between "network" and "wired" is
+    # explicit rather than inferred from a count.
+    fm_edges, fm_skipped = build_force_main_edges(termini, verdicts, fm, topo)
+    edges_path = Path(cfg["_base_dir"]) / cfg["outputs"]["force_main_edges"]
+    try:
+        fm_edges.to_csv(edges_path, index=False, encoding="utf-8-sig")
+        # Per COMPONENT, not per edge: a system with two lift stations on one
+        # discharge gets two edges, and summing the column would count its
+        # mileage twice.
+        wired_mi = (fm_edges.drop_duplicates("comp_id").length_ft.sum() / 5280
+                    if not fm_edges.empty else 0.0)
+        print(f"\nForce-main edges: {edges_path}  ({len(fm_edges)} edge(s), "
+              f"{fm_edges.comp_id.nunique() if not fm_edges.empty else 0} "
+              f"system(s), {wired_mi:.1f} mi of pressurized main)")
+        print("  Set inputs.force_main_edges to this path to trace through them.")
+    except PermissionError:
+        print(f"\nCOULD NOT WRITE {edges_path} - close it and re-run.")
+    if not fm_skipped.empty:
+        held_mi = fm_skipped.length_ft.sum() / 5280
+        print(f"  not wired: {len(fm_skipped)} system(s), {held_mi:.1f} mi - "
+              "these stay invisible to a trace until reviewed:")
+        for reason, grp in fm_skipped.groupby("reason"):
+            print(f"    {len(grp):>3}  {reason}")
 
     shp_path = Path(cfg["_base_dir"]) / cfg["outputs"]["force_main_review_shp"]
     try:

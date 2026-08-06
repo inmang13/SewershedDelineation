@@ -2106,3 +2106,60 @@ different terminus (2046/2048). `review_rows` now checks `contact == "facility"`
 
 No code changes from these findings beyond the comment fix above — recorded here so the specifics
 aren't lost before the graph-wiring step exists to act on them.
+
+---
+
+## 2026-08-06 — Force mains wired into the traversal graph (Phase 3b)
+
+**Decision.** A confirmed force-main system becomes ONE directed edge in the gravity
+graph, from its wet-well gravity node to its discharge gravity node. New module
+`src/force_main_wiring.py`; the edge list is written by `run_force_mains.py` and read
+by `graph_builder.load_graph_from_config`.
+
+**Rationale.** The gravity graph stops dead at every lift station — flow enters the wet
+well and the network ends — so every basin behind a pump was invisible to a trace. On
+the city's network that was 9,912 gravity pipes unreachable from their true downstream
+point. The interior of a force main doesn't need modelling: nothing joins a pressurized
+main mid-run, so what matters is only where flow enters and where it leaves.
+
+**Only settled systems are wired.** `resolved` components only, and only their
+CONFIRMED contacts (`connected` / `facility`) — never a `candidate`. A candidate is a
+proposal the reviewer hasn't accepted, and wiring one fabricates connectivity, which is
+the failure the review file exists to prevent. Checked against Grace's review decisions
+before building: every "no snap" she has given sits on a `candidate` contact or an
+unresolved component, so this rule cannot contradict a decision she has already made.
+
+**`terminates_at_facility` is skipped, not wired.** A plant is terminal; no trace passes
+through it, so an edge there would connect nothing while implying the plant has an
+outlet. Skipped components are reported with their reason and mileage rather than being
+absent from the output.
+
+**Force mains carry `pidx=None`.** A pressurized main has no service laterals — nothing
+discharges into it along its length, so it contributes no population. The None keeps it
+out of `pipes.iloc[pidx]`, which is what Phase 5 buffers. `TraversalResult` grew a
+`gravity_edges` property and `pidx_list` now filters on it;
+`polygon_output.build_debug_pipes_gdf` was zipping traversal depth positionally against
+`res.edges`, which would have misaligned depths against pipes once a force-main edge
+appeared in a trace, so it now zips against `gravity_edges`.
+
+**QA paths opt out.** `load_graph_from_config` grew `wire_force_mains=True`, and
+`run_graph.py` passes False: its headline check is the directed-cycle test on the
+GRAVITY layer's digitization, and a force main is a legitimate pressurized connection,
+not a direction error. `run_force_mains.py` also passes False — it GENERATES the edge
+list, so reading last run's copy back in would classify termini against a graph that
+already contains the answer.
+
+**The artifact is joined by coordinate, not by id.** Component numbering shifts whenever
+the pipe set changes and node ids are regenerated on every build, but a gravity node's
+location is physical. Same lesson `settle_reviewed_rows` learned matching decisions
+across runs. A stored coordinate that no longer resolves to a node RAISES rather than
+skipping: a silent skip drops an entire pumped basin out of every downstream trace with
+no signal.
+
+**Verified on the real network, not just in tests.** 40 of 69 systems wired (41 edges —
+one system has two lift stations sharing a discharge), 23.6 of 55.4 mi. Each edge was
+then added to the gravity graph in ISOLATION and the trace re-run: all 41 gained exactly
+the set of pipes upstream of that station's wet well, no extras and nothing missing.
+Zero force-main edges close a directed loop. The 29 unwired systems (31.8 mi) stay
+invisible to a trace until reviewed, and the runner prints that gap rather than leaving
+it to be inferred.

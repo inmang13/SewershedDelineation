@@ -270,13 +270,15 @@ def build_boundary_gdf(res, params: dict, served_gdf, served_union=None,
 def build_debug_pipes_gdf(pipes: gpd.GeoDataFrame, res):
     """
     The contributing pipes as a review layer, with traversal depth, or None if the
-    trace was empty. `res.pidx_list` and `res.edges` are aligned (both built from
-    the same edge list), so depth maps positionally.
+    trace was empty. `res.pidx_list` and `res.gravity_edges` are aligned (both
+    built from the same filtered edge list), so depth maps positionally. Zipping
+    against `res.edges` instead would misalign once force-main edges are wired
+    in — those have no row in `pipes`.
     """
     if res.is_empty:
         return None
     sub = pipes.iloc[res.pidx_list].copy()
-    sub["depth"] = [e["depth"] for e in res.edges]
+    sub["depth"] = [e["depth"] for e in res.gravity_edges]
     sub["manhole"] = str(res.source_value)
     return sub
 

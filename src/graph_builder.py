@@ -159,7 +159,7 @@ def nodes_within(index: NodeIndex, x: float, y: float, radius: float):
     return out
 
 
-def load_graph_from_config(cfg: dict):
+def load_graph_from_config(cfg: dict, wire_force_mains: bool = True):
     """
     Load pipes and build the directed graph from a validated config dict.
 
@@ -171,6 +171,14 @@ def load_graph_from_config(cfg: dict):
     here, so traversal and delineation trace the same human-repaired topology
     that QA reports on. Midspan-junction splits (pipe_splits.py) are applied
     before the snap for the same reason — one topology everywhere.
+
+    `wire_force_mains` adds the confirmed force-main connectivity edges named by
+    `inputs.force_main_edges` (no-op when that key is unset — the gravity-only
+    default). Pass False from anything validating the GRAVITY layer's
+    digitization: a force main is not a gravity pipe, and `summarize_graph`
+    would report it as a direction error. `run_graph.py` and the network-QA path
+    do exactly that; traversal and delineation want the edges and keep the
+    default.
     """
     from qa_review import manual_snaps_from_config
     from pipe_splits import apply_midspan_splits
@@ -193,6 +201,28 @@ def load_graph_from_config(cfg: dict):
                     p["node_snap_tolerance_ft"],
                     p.get("snap_gap_search_radius_ft", 10.0),
                     manual_snaps=manual_snaps_from_config(cfg))
+
+    if wire_force_mains:
+        from force_main_wiring import (
+            load_force_main_edges, add_force_main_edges,
+            cycles_through_force_mains)
+        fm_edges = load_force_main_edges(cfg)
+        if fm_edges is not None and not fm_edges.empty:
+            added = add_force_main_edges(
+                G, fm_edges, p.get("force_main_edge_snap_tol_ft", 10.0))
+            print(f"Force mains: {len(added)} confirmed system(s) wired in "
+                  f"(wet well → discharge; pressurized, so they convey flow "
+                  "but contribute no population)")
+            looped = cycles_through_force_mains(G)
+            if not looped.empty:
+                # Loud, not fatal: the graph is still traceable (reverse-BFS
+                # carries a visited set), but any trace through this loop is
+                # inflated and the direction call needs another look.
+                print(f"  ** WARNING: {len(looped)} force-main edge(s) close a "
+                      "directed loop — flow would return to its own wet well:")
+                for r in looped.itertuples(index=False):
+                    print(f"     component {r.comp_id} ({r.facilityid}) — "
+                          f"in a {r.scc_nodes}-node cycle")
     return G, pipes
 
 

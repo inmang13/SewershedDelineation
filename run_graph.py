@@ -32,7 +32,11 @@ def main():
     params = cfg["parameters"]
 
     print(f"Loading pipes : {cfg['inputs']['gravity_main_shapefile']}")
-    G, pipes = load_graph_from_config(cfg)
+    # Gravity only: this runner's headline check is the directed-cycle test on
+    # the GRAVITY layer's digitization. A force-main edge is a legitimate
+    # pressurized connection, not a direction error, and would be reported as
+    # one here.
+    G, pipes = load_graph_from_config(cfg, wire_force_mains=False)
     print(f"  Pipes       : {len(pipes):,}")
     print(f"Snap tol      : {params['node_snap_tolerance_ft']} ft   |  "
           f"end-node repair: {params.get('snap_gap_search_radius_ft', 10.0)} ft")

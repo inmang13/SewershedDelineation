@@ -129,6 +129,11 @@ DEFAULT_INCLUDE = {
     "exclude_comment": ["bypass port", "by-pass port", "bypass pumping",
                         "by-pass pumping", "bypass pump pipe",
                         "emergency bypass"],
+    # Individual FACILITYIDs a reviewer has confirmed are wrong/redundant and
+    # should be dropped outright (e.g. a duplicate stub inside a station that
+    # the direction rule keeps misreading as a discharge). Distinct from
+    # small-stub pruning: this is a per-pipe human call, not a rule.
+    "exclude_facilityid": [],
 }
 
 
@@ -212,6 +217,12 @@ def load_force_mains(cfg: dict) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
         _drop(lambda f, p=pattern: f["COMMENT"].fillna("").str.contains(
                   p, case=False, regex=False),
               f"COMMENT contains '{pattern}'")
+
+    exclude_fids = rules.get("exclude_facilityid")
+    if exclude_fids:
+        fid_set = {str(f) for f in exclude_fids}
+        _drop(lambda f: f["FACILITYID"].astype(str).isin(fid_set),
+              f"FACILITYID in {sorted(fid_set)} (reviewer-confirmed drop)")
 
     _drop(lambda f: f.geometry.is_empty | f.geometry.isna(), "empty geometry")
 
@@ -850,7 +861,20 @@ def settle_reviewed_rows(rows: pd.DataFrame, cfg: dict,
                & (pd.to_numeric(rows.dist_ft, errors="coerce") <= auto_accept_ft))
     settled = rows[obvious].assign(settled_as="auto_accepted",
                                    settled_why=f"gap <= {auto_accept_ft} ft")
-    open_rows = rows[~obvious]
+
+    # A facility already confirmed this specific end - there is no decision to
+    # make on THIS row (Grace, 2026-08-05: "why is this entry even here???").
+    # The system's real problem, if any, is on another terminus and gets its
+    # own row; component_verdicts still reports the gap either way, so nothing
+    # about the underlying issue goes unreported.
+    facility_confirmed = ((rows.flag_type == FLAG_AMBIGUOUS)
+                          & (rows.contact == "facility"))
+    settled = pd.concat([settled, rows[facility_confirmed].assign(
+        settled_as="facility_confirmed",
+        settled_why="this end is already matched to a confirmed facility; "
+                    "no decision possible here")], ignore_index=True)
+
+    open_rows = rows[~(obvious | facility_confirmed)]
 
     prior = _load_prior_decisions(cfg.get("inputs", {}).get("force_main_decisions"))
     if prior is not None and not prior.empty and not open_rows.empty:
