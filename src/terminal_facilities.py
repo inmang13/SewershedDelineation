@@ -250,6 +250,10 @@ def apply_to_termini(termini: pd.DataFrame, matches: pd.DataFrame) -> pd.DataFra
     out["facility_name"] = ""
     out["facility_role"] = ""
     out["facility_conflict"] = False
+    # How far the facility point sits from this terminus. Distinct from the
+    # terminus's own `dist_ft`, which measures terminus-to-gravity-node - two
+    # different distances that were both being reported as "dist_ft".
+    out["facility_dist_ft"] = float("nan")
     if matches.empty:
         return out
 
@@ -261,6 +265,7 @@ def apply_to_termini(termini: pd.DataFrame, matches: pd.DataFrame) -> pd.DataFra
             continue
         out.at[i, "facility_name"] = m.name
         out.at[i, "facility_role"] = m.role
+        out.at[i, "facility_dist_ft"] = float(m.dist_ft)
         if m.role == PLANT:
             out.at[i, "classification"] = "terminal"
             out.at[i, "contact"] = "facility"
@@ -303,11 +308,17 @@ def facility_flags(matches: pd.DataFrame, termini: pd.DataFrame) -> list[dict]:
                 "flag_type": FLAG_DIRECTION_CONFLICT,
                 "name": t.facility_name,
                 "role": STATION,
-                "dist_ft": t.dist_ft,
+                # The FACILITY-to-terminus distance. Reporting the terminus's own
+                # dist_ft here read as "the station is N ft from the force main"
+                # when it actually meant "the force main is N ft from its gravity
+                # node" - a different measurement entirely, and the number a
+                # reviewer acts on.
+                "dist_ft": getattr(t, "facility_dist_ft", float("nan")),
                 "description": (
-                    f"pump station '{t.facility_name}' sits on a terminus the "
-                    f"out-degree rule called '{t.classification}'. A station is a "
-                    "wet well, so either the gravity direction is wrong here or "
-                    "the facility point belongs to a different structure."),
+                    f"pump station '{t.facility_name}' sits {t.facility_dist_ft:.0f} ft "
+                    f"from a terminus the out-degree rule called "
+                    f"'{t.classification}'. A station is a wet well, so either the "
+                    "gravity direction is wrong here or the facility point belongs "
+                    "to a different structure."),
             })
     return flags

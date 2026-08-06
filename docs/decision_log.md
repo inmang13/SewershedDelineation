@@ -2207,3 +2207,21 @@ not taken.
 
 **Effect on this network:** systems wired 40 → 41, open review rows 38 → 37. Remaining
 facility conflicts: Lick Creek and Old Oxford Rd, both still needing Grace.
+
+---
+
+## 2026-08-06 — Bug: two different distances were both reported as "dist_ft"
+
+**Found.** `facility_flags` reported `facility_direction_conflict` using the terminus's
+own `dist_ft`, which measures TERMINUS-to-GRAVITY-NODE. Read in context — "Lick Creek
+Lift Station (58 ft)" — it looks like the station is 58 ft from the force main. It is
+not; the station was 125 ft away. The line directly above it, `facility_no_force_main`,
+uses the same key to mean facility-to-terminus, so one printed list carried two
+different measurements under one name.
+
+Caught because moving Lick Creek's coordinate 81 ft left the reported number unchanged
+at 58 ft, which it should not have.
+
+**Fix.** `apply_to_termini` now stamps `facility_dist_ft` (facility → terminus) and the
+conflict flag reports that. The description states the distance in words so it cannot be
+misread again. Lick Creek now correctly reports 125 ft.
