@@ -2273,3 +2273,43 @@ same complaint Grace raised on 2026-08-05 ("why is this entry even here???").
 The 6 extra edges are pumped basins that now reach their discharge. The 5 extra review
 rows are churn from components changing verdict once a wet well was pinned. All 48 edges
 re-verified in isolation; none closes a directed loop.
+
+---
+
+## 2026-08-06 — A loop in the pipes is not a loop in the flow
+
+**Decision.** Removed the `cyclic` component verdict. A loop in force-main geometry no
+longer blocks a system from being wired.
+
+**Rationale.** Grace: *"the lines make a loop, but the arrows do not make a loop."* She is
+right, and it invalidates the check. A pressurized main is modelled as ONE edge, wet well
+→ discharge; the route between them never enters a trace. Flow direction is fixed by the
+component's ENDS, not by the path, so going either way round a loop lands in the same
+place. The `cyclic` verdict was blocking on a condition with no bearing on the result.
+
+I should have caught this when designing the wiring — that design explicitly says the
+interior of a force main doesn't need modelling. The verdict logic predated it and was
+never revisited.
+
+**What the loops actually were.** Locating them (13 loops across 7 systems) showed every
+one was 32–192 ft, and satellite imagery put them inside pump-station and plant yards:
+valve and manifold arrangements. 19.2 miles was being withheld over 785 ft of pipe.
+
+**`n_cycles` is still computed and reported** per component, and the runner now names how
+many WIRED systems contain a loop. A loop is still worth seeing; it just no longer decides
+anything.
+
+**Effect — the largest single gain in the project so far:**
+
+| | Before | After |
+|---|---|---|
+| Force main traced | 23.8 mi | **41.2 mi** |
+| Share of network | 43% | **74%** |
+| Components settled | 41 | 45 |
+| Edges wired | 48 | 57 |
+| Open review rows | 40 | 34 |
+| Not wired | 31.6 mi | 14.2 mi |
+
+Four systems that had been `cyclic` turned out to have no confirmed wet well once the
+loop stopped masking it, and are now honestly reported as `no_wetwell` instead. All 57
+edges re-verified in isolation; none closes a directed loop.

@@ -829,3 +829,51 @@ def test_no_facilities_means_no_synthetic_termini():
     out, added = add_station_junction_termini(
         termini, topo, G, build_node_index(G), None, 200.0, 10.0, 500.0)
     assert added.empty and len(out) == len(termini)
+
+
+# ---------------------------------------------------------------------------
+# A loop in the pipes is not a loop in the flow
+# ---------------------------------------------------------------------------
+
+def test_a_valve_loop_at_the_station_does_not_block_the_system():
+    """
+    Grace, 2026-08-06: "the lines make a loop, but the arrows do not make a
+    loop." A force main is modelled as one edge, wet well -> discharge; the
+    route between them never enters a trace, so going either way round a loop
+    lands in the same place.
+    """
+    G = _gravity({1: (0, 0), 2: (100, 0), 3: (900, 0), 4: (1000, 0)},
+                 [(1, 2), (3, 4)])
+    # station at node 2, discharge at node 3, with a valve loop in between
+    fm = _fm([[(100, 0), (300, 0)],
+              [(300, 0), (400, 40)],     # ) two ways round
+              [(300, 0), (400, -40)],    # ) the same 40 ft
+              [(400, 40), (500, 0)],
+              [(400, -40), (500, 0)],
+              [(500, 0), (900, 0)]],
+             fids=["IN", "L1", "L2", "L3", "L4", "OUT"])
+    topo = build_topology(fm, 1.0)
+    termini = classify_termini(topo, G, build_node_index(G), 10.0, 500.0)
+    v = component_verdicts(topo, termini, fm)
+
+    assert v.n_cycles.iloc[0] > 0, "the geometry really does contain a loop"
+    assert v.verdict.iloc[0] == "resolved", \
+        "one wet well and one discharge settles it; the loop is irrelevant"
+
+
+def test_a_loop_still_cannot_rescue_genuinely_ambiguous_ends():
+    """Dropping the cyclic verdict must not settle a system whose ends are unclear."""
+    G = _gravity({1: (0, 0), 2: (100, 0), 9: (100, 300),
+                  3: (900, 0), 4: (1000, 0)},
+                 [(1, 2), (2, 9), (3, 4)])      # both ends still flow onward
+    fm = _fm([[(100, 0), (300, 0)],
+              [(300, 0), (400, 40)],
+              [(300, 0), (400, -40)],
+              [(400, 40), (500, 0)],
+              [(400, -40), (500, 0)],
+              [(500, 0), (900, 0)]],
+             fids=["IN", "L1", "L2", "L3", "L4", "OUT"])
+    topo = build_topology(fm, 1.0)
+    termini = classify_termini(topo, G, build_node_index(G), 10.0, 500.0)
+    v = component_verdicts(topo, termini, fm)
+    assert v.verdict.iloc[0] == "multi_discharge"

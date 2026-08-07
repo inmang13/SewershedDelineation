@@ -254,6 +254,18 @@ def main():
     # `skipped` with the reason, so the gap between "network" and "wired" is
     # explicit rather than inferred from a count.
     fm_edges, fm_skipped = build_force_main_edges(termini, verdicts, fm, topo)
+    # A wired system can still contain a loop in its geometry - that is fine
+    # (the modelled edge is wet well -> discharge, so the route between them
+    # never matters), but it should stay visible rather than vanish now that it
+    # no longer blocks anything.
+    looped = verdicts[(verdicts.n_cycles > 0)
+                      & verdicts.verdict.isin(VERDICT_SETTLED)]
+    if not looped.empty:
+        print(f"\n{len(looped)} wired system(s) contain a loop in the pipe "
+              f"geometry ({looped.n_cycles.sum()} loop(s), "
+              f"{looped.length_ft.sum() / 5280:.1f} mi) - valve/manifold "
+              "arrangements at stations. Direction comes from the ends, so "
+              "they trace correctly.")
     edges_path = Path(cfg["_base_dir"]) / cfg["outputs"]["force_main_edges"]
     try:
         fm_edges.to_csv(edges_path, index=False, encoding="utf-8-sig")

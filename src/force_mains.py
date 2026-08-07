@@ -102,8 +102,21 @@ VERDICT_DIRECTION_UNRESOLVED = {
     "no_discharge",      # touches gravity, but every contact is a terminal sink
     "no_wetwell",        # a discharge, but no terminal sink to pump from
     "multi_discharge",   # two or more contacts have downstream gravity
-    "cyclic",            # direction resolvable at the ends, but the interior loops
 }
+
+# NOT a direction failure: a loop in the pipe geometry.
+#
+# A pressurized main is modelled as ONE edge, wet well -> discharge; its interior
+# path never enters a trace. So flow direction is fixed by the component's ENDS,
+# not by the route between them, and going either way round a loop lands in the
+# same place. Grace, 2026-08-06: "the lines make a loop, but the arrows do not
+# make a loop."
+#
+# This was a `cyclic` verdict that blocked 7 systems and 19.2 mi - 35% of the
+# pressurized network - on a condition with no bearing on the answer. Mapping the
+# loops showed all 13 of them were 32-192 ft valve/manifold arrangements inside
+# pump-station and plant yards. `n_cycles` is still reported per component,
+# because a loop is still worth seeing; it just no longer decides anything.
 
 VERDICT_UNRESOLVED = VERDICT_UNATTACHED | VERDICT_DIRECTION_UNRESOLVED
 
@@ -841,8 +854,8 @@ def component_verdicts(topo: ForceMainTopology, termini: pd.DataFrame,
     Roll terminus classifications up to a per-component verdict.
 
     `resolved` means the direction rule succeeded: exactly one connected
-    discharge and at least one connected wet well, and no cycles to make the
-    interior orientation ambiguous. Everything else names *why* it failed, so
+    discharge and at least one connected wet well. A loop in the geometry does
+    NOT block it — see the note above VERDICT_DIRECTION_UNRESOLVED. Everything else names *why* it failed, so
     the review file sorts by the work each component needs. The failure
     vocabulary is `VERDICT_UNRESOLVED`, defined at module top with a one-line
     gloss each — kept there rather than listed here so it cannot drift out of
@@ -882,8 +895,6 @@ def component_verdicts(topo: ForceMainTopology, termini: pd.DataFrame,
             verdict = "no_discharge"
         elif n_disch > 1:
             verdict = "multi_discharge"
-        elif cycles > 0:
-            verdict = "cyclic"
         elif n_wet == 0:
             verdict = "no_wetwell"
         else:
@@ -1168,8 +1179,7 @@ def _plain_verdict(verdict: str) -> str:
         "no_wetwell":    "I couldn't find the pump station this system pumps from.",
         "multi_discharge": "two or more ends look like they empty into the "
                            "gravity sewer, so I can't tell which one is real.",
-        "cyclic":        "the pipes in this system form a loop, so I can't tell "
-                         "which way flow runs through it.",
+
         "isolated":      "this system doesn't reach the gravity sewer anywhere.",
         "unconnected_only": "nothing in this system quite touches the gravity "
                             "sewer — every contact is a near miss.",
