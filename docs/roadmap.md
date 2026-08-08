@@ -315,9 +315,13 @@ geography + Census key; Grace's call 2026-07-12, walkthrough covers it instead).
 - Rich-HTML writeup: method, validation, boundary-method sweep, results, figures
   (de-identified screenshots per the figures policy above).
 - Honest scoping paragraphs: **truth = agreement with expert manual delineation, not ground-truth
-  accuracy** (state who drew the polygons); **gravity-only** — force-main-fed subbasins undercounted
-  (the FAO/meter case is the live example); **demographics = unvalidated estimates** (no
-  catchment-demographic ground truth exists).
+  accuracy** (state who drew the polygons); **demographics = unvalidated estimates** (no
+  catchment-demographic ground truth exists); **force-main coverage is partial, not absent**
+  — as of 2026-08-06, 41.2 of 55.4 mi (74%) of the city's pressurized network is traced;
+  the remaining 14.2 mi is listed per system in `QC/force_main_review.csv`. The old
+  "gravity-only, force-main-fed subbasins undercounted" caveat is superseded — restate it
+  as a quantified residual, not a blanket limitation. The published median IoU of 0.875
+  was earned gravity-only and has NOT been re-measured with force mains wired in.
 
 **Track E — Release artifacts (final; needs A/B/D/G).**
 - [ ] **BLOCKER — history scrub → new public repo (decided 2026-07-26, do this FIRST in E).**
@@ -573,6 +577,50 @@ decision_log 2026-07-02. Remaining, in planned order:
    `Sampling_Locations_05212026.shp` field `Tract` to `AssetID_tx`. Known
    pairs: 5→27508, 7→09289, 14→11069, 18.06→17863, 18.08→30976,
    20.20→03442, 20.23→02201, 20.29→30804, 1.02→29962, 13.01→28175, 23→28080.
+
+---
+
+## Force mains — status (2026-08-07)
+
+Pressurized mains are ingested, reviewed, and **wired into the traversal graph**. A trace
+now crosses a lift station: standing below a discharge point it follows the force main back
+to the wet well and picks up the whole pumped basin above it. Optional and off by default —
+`inputs.force_main_edges` is null in the public repo, set in sewershed-lab.
+
+**Coverage on the city's network:**
+
+| | |
+|---|---|
+| Force main traced | 41.2 of 55.4 mi (74%) |
+| Systems wired | 45 of 68 |
+| Gravity pipes newly reachable | ~9,900 |
+| Still invisible to a trace | 14.2 mi, 23 systems |
+| Open review rows | 34 |
+
+**Where the remaining 14.2 mi sits** (`QC/force_main_review.csv`):
+
+- 8 systems, 2.6 mi — no discharge found (nowhere it empties back into gravity)
+- 8 systems, 3.3 mi — no wet well found (no pump station identified)
+- 3 systems, 2.8 mi — competing discharges, can't tell which is real
+- 2 systems, 0.2 mi — only near-miss contacts, nothing accepted
+- 2 systems, 5.4 mi — end at a treatment plant; correctly excluded, nothing traces through a plant
+
+**Open questions**
+
+- **Validation has not been re-run with force mains wired.** The published median IoU of
+  0.875 is a gravity-only number. Wiring 9,900 more pipes into reach must change it, and
+  by how much is unmeasured. This is the highest-value open item — it is the claim the
+  writeup rests on.
+- `qa_review.load_review_decisions` still has no duplicate-header validation and no cp1252
+  fallback. Excel round-trips are the known trigger; worked around locally in
+  `force_mains._read_csv_rows` but never fixed at the source. A duplicated `decision`
+  column silently reads zero decisions and reports success — the worst failure shape.
+- `/code-review` has never been run on any of the force-main work (~2,000 lines across
+  `force_mains.py`, `force_main_wiring.py`, `terminal_facilities.py`, plus changes to
+  `graph_builder`/`traversal`/`polygon_output` that every trace depends on). Offered four
+  times, never taken up.
+- `data/snForceMain/` and `data/snForceMain.zip` in sewershed-lab are redundant with
+  `data/force_mains.gpkg` and remain uncommitted pending a delete decision.
 
 ---
 
