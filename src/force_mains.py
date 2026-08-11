@@ -829,9 +829,34 @@ def flag_station_adjacent_discharges(termini: pd.DataFrame, topo: ForceMainTopol
         r = out.loc[i]
         if pipe_len.get(r.cluster, float("inf")) > max_pipe_ft:
             continue
-        d, _ = station_tree.query([r.x, r.y])
+        d, si = station_tree.query([r.x, r.y])
         if d > station_tol_ft:
             continue
+
+        # False-positive guard: a short discharge stub sitting near a station
+        # is only a misread if it plausibly belongs to THAT station. If this
+        # terminus's own component already has a facility-confirmed wet well
+        # anchored to a DIFFERENTLY NAMED station, the nearby station is
+        # coincidence, not the system's own outlet, and downgrading here would
+        # delete a real discharge instead of catching a fake one. Caught
+        # 2026-08-11: adding Celeste Circle Lift Station flagged FM:2766
+        # (component 34) this way, even though that component's real wet well
+        # is a confirmed station 0.84 mi away — nothing to do with Celeste
+        # Circle. When there is no facility-named wet well yet (the inference
+        # rule alone, as at East End and Geer St), this guard does not apply
+        # and the original behaviour holds.
+        station_name = (stations["name"].iloc[int(si)]
+                        if "name" in stations.columns else None)
+        comp_wetwells = out[(out.comp_id == r.comp_id)
+                            & (out.classification == "wetwell")
+                            & (out.contact.isin(CONFIRMED_CONTACTS))]
+        if station_name is not None and not comp_wetwells.empty \
+                and "facility_name" in comp_wetwells.columns:
+            named = comp_wetwells[comp_wetwells.facility_name.astype(str)
+                                  .str.strip() != ""]
+            if not named.empty and not (named.facility_name == station_name).any():
+                continue
+
         out.at[i, "contact"] = "candidate"
         out.at[i, "station_adjacent"] = True
         pidx = min((d2["pidx"] for _, _, d2 in

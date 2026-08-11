@@ -691,6 +691,66 @@ def test_facility_confirmed_terminus_is_not_asked_which_end_is_the_pump_station(
     assert "Snow Hill Lift Station" in confirmed.comment
 
 
+def test_short_stub_not_flagged_when_component_already_anchored_elsewhere():
+    """
+    Regression (Grace, 2026-08-11): adding Celeste Circle Lift Station to the
+    facility layer flagged FM:2766 (component 34) as a station-adjacent
+    misread, even though that component's real wet well was already a
+    DIFFERENT confirmed station 0.84 mi away — Celeste Circle had nothing to
+    do with it, just a coincidental 146 ft gap. Downgrading deleted a real
+    discharge instead of catching a fake one.
+
+    Shape: a long trunk from a confirmed "Real Station" wet well out to a
+    short discharge stub that happens to land near an unrelated "Coincidence
+    Station". The guard should leave this one alone — the component is
+    already anchored, by name, to a different station.
+    """
+    from terminal_facilities import match_facilities, apply_to_termini
+    G = _gravity({1: (0, 0), 2: (-50, 0), 3: (5018, 0), 4: (5118, 0)},
+                 [(2, 1), (3, 4)])
+    fm = _fm([[(0, 0), (5000, 0)], [(5000, 0), (5018, 0)]])
+    topo = build_topology(fm, 1.0)
+    termini = classify_termini(topo, G, build_node_index(G), 10.0, 500.0)
+    facilities = gpd.GeoDataFrame(
+        {"name": ["Real Station", "Coincidence Station"],
+         "role": [STATION, STATION]},
+        geometry=[Point(0, 0), Point(5018, 0)], crs=CRS)
+    matches = match_facilities(facilities, termini, 1000.0, 200.0)
+    termini = apply_to_termini(termini, matches)
+
+    out, report = flag_station_adjacent_discharges(
+        termini, topo, fm, facilities, max_pipe_ft=25.0, station_tol_ft=200.0)
+    discharge_row = out[out.classification.astype(str)
+                        .str.startswith("discharge")].iloc[0]
+    assert not discharge_row.station_adjacent
+    assert discharge_row.contact == "connected"
+    assert report.empty
+
+
+def test_short_stub_still_flagged_when_anchored_to_the_same_station():
+    """The guard must not break the original East End / Geer St pattern when
+    the component's confirmed wet well IS the same station sitting near the
+    discharge stub — that's still the real misread the rule exists to catch.
+    """
+    from terminal_facilities import match_facilities, apply_to_termini
+    G = _gravity({1: (0, 0), 2: (-50, 0), 3: (18, 0), 4: (118, 0)},
+                 [(2, 1), (3, 4)])
+    fm = _fm([[(0, 0), (18, 0)]])
+    topo = build_topology(fm, 1.0)
+    termini = classify_termini(topo, G, build_node_index(G), 10.0, 500.0)
+    station = _facility("East End Lift Station", STATION, 0, 0)
+    matches = match_facilities(station, termini, 1000.0, 200.0)
+    termini = apply_to_termini(termini, matches)
+
+    out, report = flag_station_adjacent_discharges(termini, topo, fm, station,
+                                                    max_pipe_ft=25.0,
+                                                    station_tol_ft=200.0)
+    flagged = out[out.classification == "discharge"].iloc[0]
+    assert flagged.station_adjacent
+    assert flagged.contact == "candidate"
+    assert len(report) == 1
+
+
 def test_no_facilities_layer_leaves_everything_unflagged():
     """flag_station_adjacent_discharges must be a no-op when there's no facility data."""
     topo, termini, verdicts, fm = _wetwell_to_discharge_case([(0, 0), (500, 0)])
