@@ -174,10 +174,13 @@ The 24 catchments were scored against expert hand-delineated truth polygons usin
 1. **Truth = agreement with expert manual delineation, not ground-truth accuracy.**
    The reference polygons were drawn by hand by a domain expert; IoU measures how
    well the tool reproduces that expert judgement, not physical correctness.
-2. **Gravity-only.** The tracer follows gravity mains. A subbasin fed *through* an
-   upstream lift station / force main is not reached by the gravity trace and is
-   undercounted. (A lift station *at* the sampling point is fine — it's the terminal
-   end of a gravity basin and traces normally.)
+2. **Gravity-only by default.** The tracer follows gravity mains; force-main wiring
+   (below) is optional and off here. A subbasin fed *through* an upstream lift
+   station is not reached by a gravity-only trace and is undercounted. (A lift
+   station *at* the sampling point is fine — it's the terminal end of a gravity
+   basin and traces normally.) See [Force mains: a real accuracy
+   tradeoff](#force-mains-a-real-accuracy-tradeoff) — wiring them in is not a strict
+   improvement.
 3. **Demographic outputs are unvalidated estimates.** The catchment polygons are
    validated (above); the demographic numbers apportioned into them are not — no
    ground truth exists for the demographics of a sewershed's contributing
@@ -192,29 +195,52 @@ The 25-site truth set above is one ground truth. A second, independent one exist
 in a sibling project: the city's official monitoring-basin polygons, hand-corrected
 against imagery, at the 14 sites the city's permanent flow meters sit on. Using
 a second truth set matters because it tests whether the 0.875 IoU number
-generalizes, rather than measuring how well the tool fits one dataset.
+generalizes, rather than measuring how well the tool fits one dataset — and it
+does: **median IoU 0.897** gravity-only on this independent set, in the same
+range as the 25-site number. (4 of 14 sites didn't trace at all — their
+surveyed coordinate sits more than the 50 ft snap tolerance from any network
+node, a coordinate-precision gap in the source data, not a tool failure.)
 
-This also answered a question the force-main feature had left open: does wiring
-force mains into the trace (crossing lift stations) help or hurt accuracy,
-measured rather than assumed.
+### Force mains: a real accuracy tradeoff, not a strict improvement
 
-|                     | Traced | Median IoU | Mean IoU |
-|---------------------|:------:|:----------:|:--------:|
-| Gravity-only        | 10/14  | 0.891      | 0.731    |
-| With force mains     | 10/14  | 0.911      | 0.896    |
+Wiring confirmed force mains into the trace (optional, off by default — see
+[What it produces](#what-it-produces)) was expected to only help, since it lets
+a trace reach pumped basins a gravity-only trace can't. Measured against both
+truth sets pooled (38 sites total, same production pipeline for every trace):
 
-**Force mains help, not hurt** — the mean rises because the worst cases improve
-the most: one small pumped basin goes from IoU 0.053 (gravity-only stops almost
-immediately at the lift station) to 0.790 once the force main carries the trace
-through to the real upstream network.
+| | Traced | Median IoU | Mean IoU |
+|---|:---:|:---:|:---:|
+| Gravity-only | 38/38 | 0.879 | 0.818 |
+| With force mains | 38/38 | 0.880 | 0.835 |
 
-**Caveats:**
-- **4 of 14 sites didn't trace at all** — their surveyed coordinate sits more
-  than the 50 ft snap tolerance from any network node, a coordinate-precision
-  gap in the source data, not a tool failure.
-- Force mains are **off by default** in this public repo (no real network data
-  ships with it); this result comes from the private lab deployment with
-  the city's actual pipe network.
+The pooled median barely moves and the mean improves — but that hides a real
+split by site type:
+
+| Site type | Gravity-only mean IoU | With force mains |
+|---|:---:|:---:|
+| 14 flow-meter sites (trunk/pump-adjacent) | 0.780 | **0.900** |
+| 25 eDNA sample sites (small, local) | 0.841 | **0.797** |
+
+**Force mains help at trunk/meter-scale sites and hurt small local ones.** The
+14 flow meters sit at or near pump stations by design, so wiring correctly
+recovers real upstream area a gravity-only trace misses. The 25 small sample
+sites mostly don't — but 6 of 24 had their traced area balloon anyway, because
+their gravity path happens to pass through a node that's *also* a force main's
+discharge point somewhere else in the network. One site (03442) more than
+doubled its traced area (1,301 → 3,258 acres) picking up three unrelated
+pumped basins this way, collapsing its IoU from 0.909 to 0.388.
+
+This is a structural property of the wiring model, not a bug in one system: a
+force main is modelled as one edge, wet well → discharge (see
+[Repository layout](#repository-layout)), so *any* trace that reaches a
+system's discharge node inherits its **entire** pumped basin — correct when
+the target genuinely is downstream of that pump, over-collection when the
+target's gravity path merely happens to pass the same node on its way to
+somewhere else entirely. **Recommendation: leave force mains off for
+small/local-site delineation** (the shipped default in both this repo and the
+private lab deployment) **until each affected site is reviewed** — force mains
+are the right call for meter- or trunk-scale work, not yet a safe default for
+a downstream-of-anything sample point.
 
 ---
 
