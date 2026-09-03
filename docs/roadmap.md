@@ -679,12 +679,17 @@ to the wet well and picks up the whole pumped basin above it. Optional and off b
 
 **Open questions — updated 2026-09-03**
 
-- ~~Validation has not been re-run with force mains wired~~ **ANSWERED 2026-09-03**:
-  measured on an independent 14-meter truth set (real the city monitoring basins, not the
-  25-site set the 0.875 number is measured against) — mean IoU 0.731 (gravity-only) →
-  0.896 (with force mains). Force mains help, not hurt. See decision_log 2026-09-03.
-  Still open: the ORIGINAL 25-site number pooled with this 14-site one, through the same
-  production pipeline — `sewershed-lab/validate_pooled.py` running as of this writing.
+- ~~Validation has not been re-run with force mains wired~~ **ANSWERED 2026-09-03,
+  CORRECTED same day** (see decision_log's two 2026-09-03 entries — the first framing
+  was wrong, read the correction not just the first entry): pooled 25-site (correct,
+  independent `Sampling_Polygons_05212026.shp`) + 14-meter result is a real SPLIT, not
+  a clean win — force mains help trunk/meter-scale sites (mean IoU 0.780→0.900) and
+  HURT small local sites (0.841→0.797), because the one-edge force-main model gives any
+  trace touching a system's discharge node its ENTIRE pumped basin, right or wrong.
+  This falsified CLAUDE.md's "a trace never crosses a force main mid-basin" domain
+  rule — corrected there with the measured counter-example (site 03442, IoU
+  0.909→0.388). Closed: don't wire force mains for small/local-site work without
+  reviewing the affected sites first; the shipped off-by-default is the correct call.
 - ~~`/code-review` has never been run~~ **DONE 2026-09-03** (see decision_log). One hard
   violation found and fixed (`force_mains.py` split into 4 phase modules); several
   judgement-call refactors (enum for classification strings, a long `main()`, tolerance

@@ -2392,3 +2392,45 @@ current layout.
   debug artifacts and dated check-in reports now gitignored rather than committed —
   the tuning process they document is already narrated in this log; the raw files
   don't need to ship.
+
+## 2026-09-03 (correction, same day) — the 14-meter-only validation was mis-framed
+
+**What was wrong.** The entry above reports the 14-meter check as showing "force mains
+help, not hurt" and stops there. Two problems, both Grace's catches:
+
+1. **The 25-site truth polygons used were circular.** `Sampling_Polygons_07062026.shp`
+   turns out to have been hand-touched-up FROM this tool's own gravity-only output —
+   not an independent truth set. Any validation against it can only ever confirm what
+   the tool already produced; it cannot test a new capability like force-main wiring.
+   The last genuinely independent version is `Sampling_Polygons_05212026.shp`, archived
+   in the sibling CommunityWastewaterDashboard repo. Swapped in, `config.yaml` and
+   `validate_pooled.py` repointed.
+2. **"Force mains help" was true only for the 14-meter set** — reporting it without the
+   25-site comparison implied a general claim the data didn't support.
+
+**Corrected result**, both truth sets pooled, same production pipeline
+(`sewershed-lab/validate_pooled.py`, rerun on the correct 25-site polygons):
+
+| Site type | Gravity-only mean IoU | With force mains |
+|---|---|---|
+| 14 flow-meter sites (trunk/pump-adjacent) | 0.780 | **0.900** |
+| 25 eDNA sample sites (small, local) | 0.841 | **0.797** |
+
+Force mains help trunk/meter-scale sites and **hurt** small local ones. 6 of 24
+small sites had their traced area balloon once force mains were wired, because their
+gravity path happens to pass through a node that's also a distant, unrelated force
+main's discharge point — the wiring model gives that trace the WHOLE pumped basin
+regardless of whether the target is actually downstream of that pump in any meaningful
+sense. Worst case: site 03442 tripled in area (1,301 → 3,258 acres, three separate
+pumped basins picked up), IoU 0.909 → 0.388.
+
+**This directly falsifies CLAUDE.md's standing domain rule** ("a trace never crosses a
+force main mid-basin," corrected 2026-07-02) — that rule was true only because it
+predates force-main wiring as a capability; corrected in CLAUDE.md with this measured
+counter-example.
+
+**Decision.** README's Validation section rewritten with the honest, split finding.
+Recommendation: leave force mains off for small/local-site delineation (the shipped
+default in both this repo and the private lab deployment) until the affected sites are
+individually reviewed; force mains are the right call for meter- or trunk-scale work,
+not yet a safe default for a downstream-of-anything sample point.
