@@ -25,12 +25,15 @@ from shapely.geometry import LineString, Point
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from force_mains import (                                        # noqa: E402
-    build_topology, classify_termini, component_verdicts, review_rows,
-    load_force_mains, to_geopackage, write_qc_gpkg,
-    flag_station_adjacent_discharges,
+    load_force_mains, to_geopackage,
     FLAG_JUNCTION, FLAG_AMBIGUOUS, FLAG_NO_CONTACT, FLAG_STATION_ADJACENT,
     MAX_PREFILLED_RADIUS_GAP_FT,
 )
+from force_main_topology import build_topology                   # noqa: E402
+from force_main_classify import (                                # noqa: E402
+    classify_termini, component_verdicts, flag_station_adjacent_discharges,
+)
+from force_main_review import review_rows, write_qc_gpkg          # noqa: E402
 from terminal_facilities import STATION                           # noqa: E402
 from graph_builder import build_node_index                       # noqa: E402
 from qa_review import load_review_decisions, manual_snaps        # noqa: E402
@@ -289,7 +292,7 @@ def test_join_file_survives_an_excel_round_trip(tmp_path):
     comment kills a utf-8 read. A review loop that cannot survive Excel is not a
     review loop.
     """
-    from force_mains import load_manual_joins
+    from force_main_topology import load_manual_joins
     path = tmp_path / "joins.csv"
     # U+2019 encodes to byte 0x92 in cp1252 — the exact byte that killed the
     # utf-8 read of Grace's returned decisions file on 2026-08-01.
@@ -300,14 +303,14 @@ def test_join_file_survives_an_excel_round_trip(tmp_path):
 
 
 def test_no_join_file_is_not_an_error():
-    from force_mains import load_manual_joins
+    from force_main_topology import load_manual_joins
     assert load_manual_joins({"inputs": {}}) == []
     assert load_manual_joins({"inputs": {"force_main_joins": "nope.csv"}}) == []
 
 
 def _stub_case(fm_lines, gravity_at=(10_000.0, 0.0)):
     """Topology + node index for the stub tests; gravity sits where you put it."""
-    from force_mains import prune_small_stubs
+    from force_main_topology import prune_small_stubs
     fm = _fm(fm_lines, dia=3.0)
     G = _gravity({1: gravity_at, 2: (gravity_at[0] + 100, gravity_at[1])}, [(1, 2)])
     topo = build_topology(fm, 1.0)
@@ -352,7 +355,7 @@ def test_stub_test_is_per_component_not_per_pipe():
 
 def test_normal_diameter_mains_are_never_pruned():
     """The rule targets small mains only; behaviour for normal ones is unchanged."""
-    from force_mains import prune_small_stubs
+    from force_main_topology import prune_small_stubs
     fm = _fm([[(0, 0), (4, 0)]], dia=12.0)
     G = _gravity({1: (10_000.0, 0.0), 2: (10_100.0, 0.0)}, [(1, 2)])
     kept, report = prune_small_stubs(fm, build_topology(fm, 1.0),
@@ -782,7 +785,7 @@ def _one_ambiguous_station():
 
 
 def test_a_reviewer_can_name_the_pump_station_the_rule_got_wrong():
-    from force_mains import apply_direction_overrides
+    from force_main_classify import apply_direction_overrides
     G, fm, topo, termini = _one_ambiguous_station()
     assert component_verdicts(topo, termini, fm).verdict.iloc[0] == "multi_discharge"
 
@@ -797,7 +800,7 @@ def test_a_reviewer_can_name_the_pump_station_the_rule_got_wrong():
 
 def test_a_ruling_that_matches_nothing_raises_instead_of_being_ignored():
     """Geometry moved out from under the ruling — silently dropping it is worse."""
-    from force_mains import apply_direction_overrides
+    from force_main_classify import apply_direction_overrides
     G, fm, topo, termini = _one_ambiguous_station()
     with pytest.raises(ValueError, match="matched no force-main terminus"):
         apply_direction_overrides(
@@ -807,7 +810,7 @@ def test_a_ruling_that_matches_nothing_raises_instead_of_being_ignored():
 
 def test_a_ruling_changes_only_the_nearest_terminus():
     """Two ends of one station can both sit inside tolerance — don't flip both."""
-    from force_mains import apply_direction_overrides
+    from force_main_classify import apply_direction_overrides
     G, fm, topo, termini = _one_ambiguous_station()
     termini2, log = apply_direction_overrides(
         termini, [{"x": 200.0, "y": 0.0, "classification": "wetwell",
@@ -818,7 +821,7 @@ def test_a_ruling_changes_only_the_nearest_terminus():
 
 
 def test_no_rulings_leaves_the_classification_untouched():
-    from force_mains import apply_direction_overrides
+    from force_main_classify import apply_direction_overrides
     G, fm, topo, termini = _one_ambiguous_station()
     termini2, log = apply_direction_overrides(termini, [], 25.0)
     assert log.empty
@@ -856,7 +859,7 @@ def test_a_station_outlet_with_two_mains_leaving_is_not_a_free_end():
 
 
 def test_a_confirmed_station_pins_the_wet_well_at_the_outlet_junction():
-    from force_mains import add_station_junction_termini
+    from force_main_classify import add_station_junction_termini
     G, fm, topo, termini = _dual_main_station()
     fac = _facility("Dual Main LS", STATION, 106.0, 0.0)
 
@@ -873,7 +876,7 @@ def test_a_confirmed_station_pins_the_wet_well_at_the_outlet_junction():
 
 def test_nothing_changes_when_a_free_end_is_already_closer():
     """Where the matcher already has a good answer, leave it alone."""
-    from force_mains import add_station_junction_termini
+    from force_main_classify import add_station_junction_termini
     G, fm, topo, termini = _dual_main_station()
     # station parked next to the far free end instead of the outlet
     fac = _facility("Far LS", STATION, 895.0, 0.0)
@@ -884,7 +887,7 @@ def test_nothing_changes_when_a_free_end_is_already_closer():
 
 
 def test_no_facilities_means_no_synthetic_termini():
-    from force_mains import add_station_junction_termini
+    from force_main_classify import add_station_junction_termini
     G, fm, topo, termini = _dual_main_station()
     out, added = add_station_junction_termini(
         termini, topo, G, build_node_index(G), None, 200.0, 10.0, 500.0)

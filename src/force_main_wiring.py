@@ -47,10 +47,8 @@ from pathlib import Path
 import networkx as nx
 import pandas as pd
 
-from force_mains import (
-    CONFIRMED_CONTACTS, VERDICT_RESOLVED, VERDICT_TERMINAL,
-    _facilityid_by_cluster,
-)
+from force_mains import CONFIRMED_CONTACTS, VERDICT_RESOLVED, VERDICT_TERMINAL
+from force_main_review import _facilityid_by_cluster
 
 # Edge attribute marking a pressurized connectivity edge. Anything validating
 # the gravity layer's digitization must exclude these — a force main is not a

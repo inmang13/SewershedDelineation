@@ -31,7 +31,8 @@ from matplotlib.lines import Line2D
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from config import load_config                                   # noqa: E402
-from force_mains import load_force_mains, build_topology, load_manual_joins  # noqa: E402
+from force_mains import load_force_mains                        # noqa: E402
+from force_main_topology import build_topology, load_manual_joins  # noqa: E402
 from terminal_facilities import load_facilities                  # noqa: E402
 from pdf_maps import _add_basemap                                # noqa: E402
 

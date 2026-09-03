@@ -24,7 +24,8 @@ from shapely.geometry import LineString
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from force_mains import build_topology, classify_termini, component_verdicts  # noqa: E402
+from force_main_topology import build_topology                   # noqa: E402
+from force_main_classify import classify_termini, component_verdicts  # noqa: E402
 from force_main_wiring import (                                   # noqa: E402
     build_force_main_edges, add_force_main_edges, load_force_main_edges,
     cycles_through_force_mains, FM_LAYER,
