@@ -162,6 +162,36 @@ The 24 catchments were scored against expert hand-delineated truth polygons usin
    margins of error where propagation is valid. Treat the outputs as estimates
    with stated uncertainty, not measurements.
 
+### Independent second check: 14 flow-meter sites
+
+The 25-site truth set above is one ground truth. A second, independent one exists
+in a sibling project: the city's official monitoring-basin polygons, hand-corrected
+against imagery, at the 14 sites the city's permanent flow meters sit on. Using
+a second truth set matters because it tests whether the 0.875 IoU number
+generalizes, rather than measuring how well the tool fits one dataset.
+
+This also answered a question the force-main feature had left open: does wiring
+force mains into the trace (crossing lift stations) help or hurt accuracy,
+measured rather than assumed.
+
+|                     | Traced | Median IoU | Mean IoU |
+|---------------------|:------:|:----------:|:--------:|
+| Gravity-only        | 10/14  | 0.891      | 0.731    |
+| With force mains     | 10/14  | 0.911      | 0.896    |
+
+**Force mains help, not hurt** — the mean rises because the worst cases improve
+the most: one small pumped basin goes from IoU 0.053 (gravity-only stops almost
+immediately at the lift station) to 0.790 once the force main carries the trace
+through to the real upstream network.
+
+**Caveats:**
+- **4 of 14 sites didn't trace at all** — their surveyed coordinate sits more
+  than the 50 ft snap tolerance from any network node, a coordinate-precision
+  gap in the source data, not a tool failure.
+- Force mains are **off by default** in this public repo (no real network data
+  ships with it); this result comes from the private lab deployment with
+  the city's actual pipe network.
+
 ---
 
 ## Repository layout
