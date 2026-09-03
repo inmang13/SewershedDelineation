@@ -15,10 +15,14 @@ inputs:
   census_blocks_crs: "EPSG:4269"      # TIGER files are NAD83 geographic
   census_blocks_county_fips: "063"    # study county — filter COUNTYFP20 before use
 
-  # Validation set (lives in the sibling CommunityWastewaterDashboard project).
-  # Only read by src/validation.py --sweep; not required for a normal run.
-  validation_truth_polygons: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Polygons_07062026.shp"
-  validation_points: "../CommunityWastewaterDashboard/data/raw/shapefiles/Sampling_Locations_05212026.shp"
+  # Validation set — the original 25-site truth set (archived in the sibling
+  # CommunityWastewaterDashboard project after a newer 24-site edit superseded
+  # it there; copied locally so this repo can reproduce its own published
+  # numbers without depending on a sibling repo's live layout). Gitignored —
+  # not redistributable. Only read by src/validation.py --sweep; not required
+  # for a normal run.
+  validation_truth_polygons: "data/Sampling_Polygons_07062026.shp"
+  validation_points: "data/Sampling_Locations_05212026.shp"
 
   # Human QA review decisions (see src/qa_review.py). Rows with decision=snap
   # force node merges in the shared snap (pass 3); resolved/keep rows annotate

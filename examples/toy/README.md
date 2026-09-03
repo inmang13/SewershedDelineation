@@ -119,3 +119,11 @@ results.
 **Network QA.** `--qa-only` runs against the toy, but the network is clean by
 construction — no direction errors, no snap gaps, no cycles — so it has nothing
 to report. The QA phase is only interesting on real, messy data.
+
+**Force mains.** The toy network is gravity-only — no lift station, no pumped
+basin — so `demo_app.py` (root of the repo) runs with `wire_force_mains=True`
+but it's a no-op here: there's nothing to wire. Adding a synthetic lift
+station + force main to this toy network (so the demo can show a trace
+actually crossing one) is a candidate future improvement, not yet done. The
+real force-main results are on real the city data — see the README's
+[Validation](../../README.md#validation) section.

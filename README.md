@@ -11,8 +11,13 @@ population contributing to each eDNA sample.
 
 - **Pure Python** — GeoPandas, NetworkX, Shapely. No ArcPy, no QGIS.
 - **Config-driven** — all inputs and parameters live in `config.yaml`.
+- **Handles pumped basins** — optional force-main wiring lets a trace cross a lift
+  station and pick up the pumped basin upstream of it, with direction (wet well vs.
+  discharge) inferred from graph topology alone, since pressurized-main geometry
+  ships with no reliable direction of its own (see [Validation](#validation)).
 - **Validated** — median IoU **0.875** in-sample / **0.863** leave-one-out against
-  24 expert hand-delineated catchments (see [Validation](#validation)).
+  24 expert hand-delineated catchments, confirmed on a second, independent 14-site
+  ground truth (see [Validation](#validation)).
 
 ---
 
@@ -25,6 +30,9 @@ population contributing to each eDNA sample.
 | `output/qc_flags.gpkg` | flags as spatial layers for GIS review |
 | `output/network_qa_*.{csv,pdf,shp}` | network QA report (direction errors, snap gaps, cycles) |
 | `output/demographics/…` | per-site Census demographics (optional phase) |
+| `QC/force_main_review.csv` | force-main junctions/directions still needing a human decision (optional phase) |
+| `QC/force_main_edges.csv` | confirmed force-main connectivity — the file that makes a trace cross a lift station |
+| `output/force_main_junctions.gpkg` | force-main pipes, termini, and proposed junctions, for GIS review |
 
 The catchment polygon is the dissolved union of served parcels, cleaned into a
 seamless boundary (Delaunay gap-fill + shared-border alignment) — not a raw pipe
@@ -57,12 +65,13 @@ pip install -r requirements.txt
 The data used for development is **not committed** (municipal GIS layers are not
 redistributable). Point `config.yaml` at your own layers:
 
-| `config.yaml` key | Layer |
-|---|---|
-| `inputs.gravity_main_shapefile` | gravity sewer mains (lines) |
-| `inputs.manholes_shapefile` | manholes (points, `FACILITYID`) |
-| `inputs.population_units_shapefile` | parcels (polygons) |
-| `inputs.census_blocks_shapefile` | TIGER blocks (optional; alternate unit) |
+| `config.yaml` key | Layer | Required? |
+|---|---|---|
+| `inputs.gravity_main_shapefile` | gravity sewer mains (lines) | **required** — the tool needs this to run at all |
+| `inputs.manholes_shapefile` | manholes (points, `FACILITYID`) | **required** |
+| `inputs.population_units_shapefile` | parcels (polygons) | **required** |
+| `inputs.census_blocks_shapefile` | TIGER blocks | optional — alternate population unit |
+| `inputs.force_main_shapefile` | pressurized force mains (lines) | optional — lets a trace cross a lift station; `null` (unset) runs gravity-only |
 
 **Projection:** everything runs in **EPSG:2264** (NC State Plane, US survey feet) by
 default — all distance parameters (snap tolerances, buffers) are in feet. Change
@@ -72,6 +81,16 @@ default — all distance parameters (snap tolerances, buffers) are in feet. Chan
 > roadmap (Phase 9, Track B) so the pipeline can be demo'd end to end without city data.
 
 ---
+
+## Try it now — no data needed
+
+```bash
+streamlit run demo_app.py
+```
+
+Runs entirely on the synthetic toy network below — no municipal data, no
+config to edit. Pick a manhole, see the traced pipes and delineated catchment
+on a map.
 
 ## Quickstart (run order)
 
@@ -93,6 +112,11 @@ python run.py --config config.yaml --sites-file sites.csv
 # 3. (optional) Attach Census demographics to the delineated catchments.
 #    Needs a free Census API key — see below.
 python run_demographics.py --config config.yaml
+
+# 4. (optional) Review force-main attachment before wiring pumped basins into
+#    the trace. Writes QC/force_main_review.csv + a QC GeoPackage; changes no
+#    topology until a human sets decision=snap on the rows they accept.
+python run_force_mains.py --config config.yaml
 ```
 
 `run.py` runs the full delineation per site — trace → parcel membership →
@@ -212,9 +236,19 @@ src/            one module per phase
   demographics.py     dasymetric apportionment into catchments
   validation.py       IoU sweep + leave-one-out cross-validation
 
+  force_mains.py          force-main ingest/filter + shared flag/verdict vocabulary
+  force_main_topology.py  force-main-only topology (endpoint clustering, stub pruning)
+  force_main_classify.py  classify each terminus as wet well / discharge, roll up to a
+                          per-system verdict
+  force_main_review.py    the human review file + QC GeoPackage
+  force_main_wiring.py    wires confirmed force mains into the traversal graph
+  terminal_facilities.py  treatment-plant / lift-station point matching
+
 run.py          production runner (single or multi-site)  ← start here
 run_qa.py       standalone network QA
 run_demographics.py   demographic-join phase
+run_force_mains.py     force-main review pipeline (optional phase — ingest through
+                       QC file, no topology change until reviewed)
 run_*.py        focused per-phase runners (debugging)
 experiments/    one-off boundary-method tuning scripts (not part of the pipeline)
 
@@ -226,9 +260,18 @@ output/         generated artifacts (not committed)
 
 ---
 
+## Contributing / AI agents
+
+Picking this up as an AI coding agent (or a new human contributor)? Read
+[`AGENTS.md`](AGENTS.md) first — it covers the hard rules (never modify a
+source shapefile, one module per phase, fail loud on ambiguous data) and
+where to find the *why* behind non-obvious design choices.
+
 ## License
 
-MIT (intended — LICENSE file pending, Phase 9 Track E).
+[MIT](LICENSE). Every dependency (GeoPandas, Shapely, NetworkX, pandas, NumPy,
+SciPy, PyYAML, requests) ships under a compatible permissive license (BSD/MIT/
+Apache-2.0) — nothing copyleft in the stack.
 
 ## Citing
 
