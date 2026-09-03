@@ -580,6 +580,78 @@ decision_log 2026-07-02. Remaining, in planned order:
 
 ---
 
+## New-site selection — Phase B (opened 2026-07-29)
+
+Phase A shipped `src/candidate_screen.py` + `run_candidate_screen.py`: **97 independent
+candidate sites** (56 nesting groups over 2,032 qualifying manholes), filtered on served
+population ≥ 515 plus THREE overlap tests against the existing 24 — non-nesting (graph), not
+inside an existing polygon (point), and no traced pipe inside one (catchment). None subsumes the
+others; see decision_log 2026-07-29. 97 is well past the ~25–30 Grace wants to review in Street
+View, so narrowing is needed.
+
+Phase B, in the order it should be built:
+
+- **B1 — Socioeconomic contrast score.** Grace chose contrast-vs-existing over
+  within-catchment heterogeneity: z-score each candidate on `pct_black`, `pct_hispanic`,
+  `median_income`, `poverty_rate`, `snap_rate` against the 24 existing sites, rank by distance
+  from that cloud. Fills gaps in the study's design space, which is the defensible framing for
+  a paper. Reuse `src/demographics.py:demographics_for_site` — it already returns every needed
+  field for an arbitrary polygon — with the existing baseline in
+  `output/demographics/sewershed_demographics.csv`.
+- **B2 — Siting proxies from data already on disk.** Parcel land use (`PARUSEDESC`) for
+  residential/commercial/vacant/park context and a "middle of the woods" flag; a right-of-way
+  proxy from the *un-parceled* gaps between parcels for the ~200 ft cart-haul metric. Report
+  cart distance as a ranked column with a soft flag, not a hard drop — see the open question
+  below.
+- **B3 — Exact delineation for finalists only.** `run_meter_service_areas_from_coords.py:
+  delineate_at_coord` + `demographics_for_site`. This is where population > 500 is enforced
+  for real; the Phase A screen is an estimate that runs ~6% low.
+- **B4 — Street View review harness.** HTML sheet, one row per finalist: aerial thumbnail (via
+  `src/pdf_maps.py:_add_basemap`, satellite), a per-point Google Street View deeplink
+  (`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=<lat>,<lng>`), the
+  demographic and siting columns, and a blank verdict column. Grace named the Street View pass
+  as the bulk of the work, so making it click-through rather than copy-paste is the real
+  time-saver.
+
+**Attrition is already absorbed, but verify it in B3.** The floor is 515, above the 510.5 implied
+by 500 × the worst observed estimator ratio (1.021), so every one of the 97 should clear a true
+500. The runner prints this adequacy check every run. Confirm it against B3's exact delineations
+and record the real hit rate — that is the number that tells us whether 515 was right.
+
+If attrition still bites, **re-screen at a higher floor rather than filtering this list.** The two
+are not equivalent: `minimal_candidates` returns the upstream-most node clearing the floor, so a
+higher floor moves each branch's pick downstream instead of dropping the branch. Measured
+2026-07-29: filtering the floor-450 list to ≥532 gave 56 sites; re-screening at 560 gave 97.
+Use `--population-floor N --output-dir output/candidate_sites_floorN`.
+
+Open questions for Phase B:
+
+- **Cart-haul metric has no road layer.** Grace chose aerial imagery over vector road/sidewalk
+  data, but a hard 200 ft cutoff needs geometry. Current plan is the parcel-gap ROW proxy
+  (zero new dependencies, honest imprecision). If it proves noisy, city road centerlines are a
+  drop-in upgrade for that one metric.
+- **Is 515 the right population floor?** It compensates a measured 0.94 median estimator bias
+  (worst case 0.71 at the smallest site). Revisit once B3 gives exact delineated populations
+  for finalists — that will show directly how many 450–500 estimates were really above 500.
+- **How much clearance from an existing sewershed is enough?**
+  `existing_boundary_buffer_ft` is 0, so only candidates *inside* an existing polygon are
+  rejected. 1 of the 112 sits within 500 ft, and its catchment may clip a neighbour once
+  delineated. `dist_to_existing_ft` is carried on every output row; decide the threshold when B3
+  shows whether it actually collides.
+- **Are the 97 pairwise disjoint from EACH OTHER on the ground?** All three overlap tests check
+  candidates against the EXISTING 24, not against one another. Non-nesting among the 97 is
+  guaranteed, but two non-nested catchments on unrelated branches can still produce overlapping
+  delineated polygons — the same asymmetry that needed tests two and three. Once B3 delineates the
+  finalists, run a pairwise intersection over them before handing the lab a list described as
+  independent. `cs.trace_pipes_in_existing` generalises to this: pass the other candidates'
+  boundaries instead of the existing ones.
+- **Should the minimal set be the maximum antichain instead?** `minimal_candidates` returns a
+  canonical, conservative antichain. A branch could in principle host two non-nested
+  qualifying sites it collapses to one. Only worth solving if Phase B leaves too few options
+  in some part of the city.
+
+---
+
 ## Force mains — status (2026-08-07)
 
 Pressurized mains are ingested, reviewed, and **wired into the traversal graph**. A trace
