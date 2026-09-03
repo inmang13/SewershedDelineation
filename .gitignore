@@ -32,6 +32,14 @@ scratchpad/
 # Stray scratch file (roadmap P4 item 12)
 wb.html
 
+# Parameter-sweep / one-off debug artifacts — not the tracked baseline files
+# (QC/competing_pipe_review.csv, .gpkg) they're variants or traces of.
+QC/competing_pipe_review_edge*.csv
+QC/trace_*.gpkg
+
+# Dated check-in reports — working notes, not portfolio-facing.
+docs/*_checkin_*.html
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

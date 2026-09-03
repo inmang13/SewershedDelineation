@@ -56,7 +56,7 @@ cfg, G, pipes, index, parcels, ignore_pidx = load_pipeline()
 with st.form("site"):
     manhole_id = st.selectbox(
         "Manhole ID", ["MH01", "MH02", "MH03", "MH04", "MH05", "MH08", "MH11"],
-        index=0,
+        index=0, key="manhole_select",
         help="MH01 = the outlet (whole 12-pipe network). MH08/MH11 = headwaters "
              "(nothing upstream — a valid, empty result). Try a few to see how "
              "the traced area changes.")

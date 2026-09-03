@@ -253,7 +253,7 @@ run_*.py        focused per-phase runners (debugging)
 experiments/    one-off boundary-method tuning scripts (not part of the pipeline)
 
 config.yaml     all input paths + parameters
-docs/           roadmap, decision log, dated check-in reports
+docs/           roadmap, decision log
 data/           input shapefiles (not committed)
 output/         generated artifacts (not committed)
 ```
