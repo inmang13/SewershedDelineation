@@ -677,22 +677,29 @@ to the wet well and picks up the whole pumped basin above it. Optional and off b
 - 2 systems, 0.2 mi — only near-miss contacts, nothing accepted
 - 2 systems, 5.4 mi — end at a treatment plant; correctly excluded, nothing traces through a plant
 
-**Open questions**
+**Open questions — updated 2026-09-03**
 
-- **Validation has not been re-run with force mains wired.** The published median IoU of
-  0.875 is a gravity-only number. Wiring 9,900 more pipes into reach must change it, and
-  by how much is unmeasured. This is the highest-value open item — it is the claim the
-  writeup rests on.
+- ~~Validation has not been re-run with force mains wired~~ **ANSWERED 2026-09-03**:
+  measured on an independent 14-meter truth set (real the city monitoring basins, not the
+  25-site set the 0.875 number is measured against) — mean IoU 0.731 (gravity-only) →
+  0.896 (with force mains). Force mains help, not hurt. See decision_log 2026-09-03.
+  Still open: the ORIGINAL 25-site number pooled with this 14-site one, through the same
+  production pipeline — `sewershed-lab/validate_pooled.py` running as of this writing.
+- ~~`/code-review` has never been run~~ **DONE 2026-09-03** (see decision_log). One hard
+  violation found and fixed (`force_mains.py` split into 4 phase modules); several
+  judgement-call refactors (enum for classification strings, a long `main()`, tolerance
+  params bundled) identified but not yet done — low priority, real risk, worth doing
+  only if touching that code again for another reason.
 - `qa_review.load_review_decisions` still has no duplicate-header validation and no cp1252
   fallback. Excel round-trips are the known trigger; worked around locally in
   `force_mains._read_csv_rows` but never fixed at the source. A duplicated `decision`
   column silently reads zero decisions and reports success — the worst failure shape.
-- `/code-review` has never been run on any of the force-main work (~2,000 lines across
-  `force_mains.py`, `force_main_wiring.py`, `terminal_facilities.py`, plus changes to
-  `graph_builder`/`traversal`/`polygon_output` that every trace depends on). Offered four
-  times, never taken up.
 - `data/snForceMain/` and `data/snForceMain.zip` in sewershed-lab are redundant with
   `data/force_mains.gpkg` and remain uncommitted pending a delete decision.
+- 4 of 14 (monitoring-basin set) and an unknown number of the 25-site set fail
+  target-resolution snap (surveyed coordinate >50 ft from the network). One-off manhole-id
+  overrides fix it per-site; no decision yet on whether a permanent tolerance/coordinate
+  fix is worth it.
 
 ---
 
@@ -700,9 +707,13 @@ to the wet well and picks up the whole pumped basin above it. Optional and off b
 
 - **Socioeconomic stats:** Join output polygon to ACS census data (race, income, poverty).
   Library candidates: `censusdatadownloader`, direct Census API.
-- **Multiple manholes per run:** Loop over a list of IDs, one output shapefile per manhole.
-- **Interactive UI:** Streamlit wrapper. Far future.
+- ~~Multiple manholes per run~~ **DONE** — `run.py --sites` / `--sites-file`.
+- ~~Interactive UI~~ **DONE 2026-09-03** — `demo_app.py`, Streamlit, runs on the toy
+  network. No real-network GUI in this public repo by design (no data ships with it);
+  see `sewershed-lab/app.py` for the real-data version.
 - **Multi-state support:** Promote CRS to required config field if project expands beyond NC.
+- **CI badge:** GitHub Actions running `pytest` on push, badge in README. Cheap, not yet
+  done — discussed 2026-09-03, worth it but not urgent.
 
 ---
 

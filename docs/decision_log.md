@@ -2313,3 +2313,82 @@ anything.
 Four systems that had been `cyclic` turned out to have no confirmed wet well once the
 loop stopped masking it, and are now honestly reported as `no_wetwell` instead. All 57
 edges re-verified in isolation; none closes a directed loop.
+
+## 2026-09-03 — Code review, force_mains.py split, and portfolio polish
+
+**Decision.** Ran the code review the roadmap had been flagging as never-done on the
+~2,000-line force-main feature (Standards + Spec axes, via the code-review skill).
+Applied the fixes: split `force_mains.py` (1,346 lines, four phases in one file — a hard
+violation of CLAUDE.md's "one module per phase" rule) into `force_main_topology.py`,
+`force_main_classify.py`, `force_main_review.py`, with `force_mains.py` kept for ingest
++ the shared flag/verdict vocabulary. No logic changed — verified via full test suite
+(186 → 175 after the candidate_screen move below, all passing) and a live
+`run_force_mains.py` run against sewershed-lab's real data reproducing the same 67
+systems / 47.0 mi as before the split.
+
+**Rationale.** Standards review found one hard violation (the file split, above) and
+several lower-priority judgement calls (Primitive Obsession on classification strings,
+a ~260-line `main()`, tolerance params travelling as loose args instead of a bundle) —
+left alone as real but low-value refactors. Spec review found the force-main design
+that shipped (one synthetic wet-well→discharge edge per system) deliberately diverges
+from `docs/force_main_integration_plan.md`'s draft (which wanted per-pipe `is_force`
+tagging and BFS orientation) — the shipped design is simpler and was a considered
+engineering call at implementation time, not an unnoticed drift, so it stands.
+
+**Validation, independent of the 25-site truth set.** Built a second ground truth:
+the city's official monitoring-basin polygons (Grace's corrected edit,
+`sewershed-lab/data/monitoring_basins_grace_edits.shp`) at the 14 RDII flow-meter sites.
+Answers the roadmap's still-open question — does wiring force mains into a trace help
+or hurt accuracy — with measurement instead of assumption:
+
+| | Traced | Median IoU | Mean IoU |
+|---|---|---|---|
+| Gravity-only | 10/14 | 0.891 | 0.731 |
+| With force mains | 10/14 | 0.911 | **0.896** |
+
+Force mains help, not hurt — the worst cases improve the most (one basin: 0.053 → 0.790).
+4 of 14 initially failed target resolution (surveyed coordinate >50 ft from any network
+node); Grace supplied the correct manhole FACILITYIDs for all four
+(DBO→21347, LCO→17547, NH2→04605, TF5→28113). A follow-on script
+(`sewershed-lab/validate_pooled.py`) pools this 14-site set with the original 25-site
+truth set through the SAME production pipeline (`delineate_site`, not the tuned
+parameter sweep `validation.py --sweep` uses) so the two numbers are genuinely
+comparable — running as of this entry; result not yet in hand. The original 25-site
+truth shapefiles (archived by Grace in the sibling CommunityWastewaterDashboard repo
+after a newer edit superseded them there) are now copied locally to `data/` (gitignored)
+and `config.yaml`'s `validation_truth_polygons`/`validation_points` repointed there, so
+this repo can reproduce its own validation numbers without depending on a sibling repo's
+current layout.
+
+**Domain corrections applied along the way (sewershed-lab, real data):**
+- FalconBridge LS added as a manual force-main system. First guess (straight to a
+  manhole near Triangle WWTP) was wrong; Grace corrected it — FalconBridge ties into
+  the existing FM:2679 line (comp 32), which already discharges to South the city WRF.
+- Triangle WWTP and FalconBridge LS added to `data/WWTP_LS.xlsx` (terminal facilities)
+  with Grace-supplied surveyed coordinates.
+- A private-data leak fixed going forward: `sewershed-lab/data/*.gpkg` (real the city
+  network data) had been committed and pushed to GitHub since the initial deploy,
+  against that repo's own CLAUDE.md rule. `.gitignore` now excludes `data/`; past
+  history left alone (shared repo — the repo is private/lab-only, so contained, not
+  urgent) per Grace's explicit choice.
+
+**Portfolio polish (this repo, public):**
+- Added `LICENSE` (MIT) and `AGENTS.md` (a guide for a future AI agent or contributor
+  picking this repo up cold — hard rules, where the "why" lives, what not to do).
+- Added `demo_app.py` — a Streamlit demo running entirely on the committed synthetic
+  toy network, force-main wiring on by default (no toggle — the toy network has no
+  pumped basin to demonstrate it on, noted honestly rather than implied). 3 new AppTest
+  tests (`tests/test_demo_app.py`) pin its exact documented numbers.
+- README: force-main capability moved into the headline bullets, outputs table, and
+  repo layout (previously only mentioned under Validation).
+- Removed `src/candidate_screen.py` + its test from this public repo — Grace's eDNA
+  candidate-site screening tool, the scope-creep bundle the code review flagged as
+  accidentally committed into an unrelated force-main fix. Moved to `sewershed-lab`
+  (private); its 14 tests reverified passing there. Grace's call: remove from the
+  current tree, not a history rewrite (already public — a force-push purge was
+  explicitly declined as a bigger, separate decision).
+- `experiments/` (boundary-method tuning scratch, never part of the pipeline) moved to
+  `AI_HOME/ARCHIVE/SewershedDelineation_experiments/`, off GitHub entirely. Scratch QC
+  debug artifacts and dated check-in reports now gitignored rather than committed —
+  the tuning process they document is already narrated in this log; the raw files
+  don't need to ship.
