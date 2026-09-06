@@ -2,6 +2,17 @@
 Portfolio demo — runs entirely on the synthetic toy network (examples/toy/),
 so it works for anyone who clones the repo with no municipal data of their own.
 
+The map underlay is a REAL street basemap (CARTO Voyager, no API key needed) —
+purely for visual context, since a blank canvas reads as less finished. The
+pipe network, parcels, and every value shown (including "Median parcel value"
+and "% commercial") are 100% SYNTHETIC — see make_toy_data.py. The toy origin
+happens to land near real the city/Chapel Hill (35.95N, 79.0W, a round-number
+EPSG:2264 coordinate), so real streets ARE visible under the fake network;
+nothing about the pipes, parcels, or their values corresponds to that or any
+real place. This repo never ships real municipal parcel/demographic data (not
+redistributable) — the synthetic values exist so the demo has something to
+show without that dependency.
+
 Force-main wiring is on by default (wire_force_mains=True) — no toggle, since
 the toy network doesn't ship a pumped basin to demonstrate it on. See the
 README's Validation section for the real-network force-main results; a lift
@@ -89,11 +100,20 @@ if submitted:
                 layers=[boundary_layer, trace_layer],
                 initial_view_state=pdk.ViewState(
                     latitude=(b[1] + b[3]) / 2, longitude=(b[0] + b[2]) / 2, zoom=14),
-                map_style="light"))
-            st.caption("Blue = delineated catchment · gray = traced pipes "
-                       "(synthetic network — not a real place)")
+                map_style="road"))
+            st.caption("Blue = delineated catchment · gray = traced pipes, over a "
+                       "**real street basemap for visual context only** — the "
+                       "network and every value below are synthetic (see "
+                       "module docstring)")
+        served = r["pop"].served if r["pop"] is not None else None
         with right:
             st.metric("Traced pipes", r["res"].n_edges)
-            st.metric("Served parcels",
-                      len(r["pop"].served) if r["pop"] is not None else 0)
+            st.metric("Served parcels", len(served) if served is not None else 0)
+            st.metric("Area (acres)", round(_acres(geom), 1))
+            st.divider()
+            st.caption("Synthetic demo values (not Census/real parcel data):")
+            if served is not None and not served.empty:
+                st.metric("Median parcel value", f"${served['PARVAL'].median():,.0f}")
+                pct_comm = (served["PARUSEDESC"] == "COMMERCIAL").mean() * 100
+                st.metric("% commercial parcels", f"{pct_comm:.0f}%")
             st.metric("Area (acres)", round(_acres(geom), 1))
