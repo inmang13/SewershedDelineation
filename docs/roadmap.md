@@ -324,32 +324,32 @@ geography + Census key; Grace's call 2026-07-12, walkthrough covers it instead).
   was earned gravity-only and has NOT been re-measured with force mains wired in.
 
 **Track E — Release artifacts (final; needs A/B/D/G).**
-- [ ] **BLOCKER — history scrub → new public repo (decided 2026-07-26, do this FIRST in E).**
-  The current repo is **private**, and the 2026-07-12 anonymization (`7c046ec`/`e4fdce9`)
-  scrubbed only the working tree — every pre-scrub commit still carries the site name, and
-  those objects are on GitHub. Recipe, verified 2026-07-26:
-  0. **FIRST, before any rewriting:** read the **two identifying strings** — the city name and
-     the named creek interceptor — out of `git show 7c046ec` / `git show e4fdce9` in the
-     private archive, and write the filter-repo replacements file **outside the repo** (e.g.
-     `~/scrub_replacements.txt`). Order matters: after the rewrite those diffs are themselves
-     scrubbed, so the strings are unrecoverable from the clone. They are deliberately not
-     written into any tracked file — quoting them here would re-contaminate the tree.
-  1. `pip install git-filter-repo`; work on a **fresh clone** (the private repo stays as the
-     unredacted dev archive — do NOT force-push it).
-  2. `--replace-text ~/scrub_replacements.txt` (18 files / 15 commits) AND `--replace-message`
-     with the same file — the strings are in commit messages too, not just blobs.
-  3. Delete blobs for the six ever-tracked binaries: `QC/trace_17_09_24430.gpkg`, `_v2.gpkg`,
-     `QC/competing_pipe_review.gpkg`, `QC/diagnostics_downstream.gpkg`,
-     `QC/recheck_v2_4parcels.gpkg`, `QC/validation_traces.gpkg` — real network data, and two
-     embed the name in layer names (un-text-scrubbable). **Safe to delete — checked
-     2026-07-26:** every remaining reference in the tracked tree is an *output* path the code
-     writes (`config.yaml:308`, `run_seam_align.py`, `run_validation_traces.py`) or historical
-     narrative in `decision_log.md`. Nothing reads these files as an input, so dropping the
-     blobs leaves no dangling dependency.
-  4. Verify `git grep -i -E "<name1>|<name2>" $(git rev-list --all)` is empty, then push to a
-     **new public repo**; tag + Zenodo from there.
-  - **Hazard:** untracked `run_meter_service_areas_from_coords.py` contains the name — scrub
-    before committing it, or the rewrite must be redone. Same for anything from `experiments/`.
+- [x] **History scrub — DONE 2026-09-06, in place, not the new-repo plan.** Grace made
+  `inmang13/SewershedDelineation` public directly rather than migrating to a new repo per
+  the 2026-07-26 plan below (kept for the record) — decided the existing repo IS the
+  intended public one, not a private archive. Ran the scrub against it in place instead:
+  `git-filter-repo --replace-text` (city name + creek interceptor name, 56 commits, blobs
+  AND commit messages) + `--path ... --invert-paths` (deleted all 6 flagged `.gpkg`
+  binaries from every commit). Backup of pre-scrub history:
+  `AI_HOME/ARCHIVE/SewershedDelineation_pre_scrub_backup_20260906/full_history.bundle`.
+  Verified clean (zero hits across current tree + full history; 175 tests pass) and
+  force-pushed; confirmed live via unauthenticated fetch. One real regression found and
+  fixed: the mechanical replace broke `run_meter_service_areas_from_coords.py`'s prefix
+  constant (matched a placeholder, not real data) — generalized to split on first
+  underscore instead. Full writeup: decision_log 2026-09-06.
+  <details><summary>Original 2026-07-26 plan (superseded, kept for reference)</summary>
+
+  Recipe, verified 2026-07-26: read the two identifying strings from `git show 7c046ec` /
+  `git show e4fdce9`; `pip install git-filter-repo`; work on a fresh clone (leave the
+  original private as the unredacted archive); `--replace-text` + `--replace-message`;
+  delete the six flagged `.gpkg` blobs; verify clean; push to a **new** public repo. Not
+  what happened — the existing repo was made public and scrubbed in place instead.
+  </details>
+  - **Hazard, now moot but noted:** untracked `run_meter_service_areas_from_coords.py`
+    contained the city name when this warning was written — it got committed with the name
+    in it during the 2026-09-03 session, exactly the scenario this warned about, requiring
+    the 2026-09-06 rewrite to fix. Same risk applies to anything ever salvaged out of
+    `experiments/` (already archived off-repo, not committed).
 - `CITATION.cff` + `.zenodo.json`; Zenodo integration → archived **DOI** on tagged release.
 - `paper/paper.md` (~600 words: statement of need, framed per the rescope — end-to-end WBE
   pipeline, validated delineation core) + `paper.bib`. Written regardless; submitted only if

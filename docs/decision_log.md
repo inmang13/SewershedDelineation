@@ -2434,3 +2434,46 @@ Recommendation: leave force mains off for small/local-site delineation (the ship
 default in both this repo and the private lab deployment) until the affected sites are
 individually reviewed; force mains are the right call for meter- or trunk-scale work,
 not yet a safe default for a downstream-of-anything sample point.
+
+## 2026-09-06 — Repo made public without the planned scrub; ran it in place instead
+
+**What happened.** Grace made `inmang13/SewershedDelineation` public directly, not the
+"scrub a clone into a NEW public repo, leave this one private forever" plan locked in on
+2026-07-26. That meant, live, as of this repo going public: the city name and the named
+creek interceptor across 18 files / 15 commits (blob content AND commit messages), plus
+4 of the 6 flagged real-network-data `.gpkg` binaries still tracked
+(`competing_pipe_review.gpkg`, `diagnostics_downstream.gpkg`, `recheck_v2_4parcels.gpkg`,
+`validation_traces.gpkg`) — two of which embed the site name in internal layer metadata.
+Compounding it: this session's own force-main work (module split, README/decision-log/
+AGENTS.md writing, and `run_meter_service_areas_from_coords.py` — the exact file the
+2026-07-26 entry warned would carry the site name if ever committed) reintroduced the
+city name into the tracked tree throughout today's commits.
+
+**Decision (Grace): clean the existing public repo in place** rather than migrate to a
+new one — "no one's going to look at it," and the repo is the one meant to be public
+per her current call (the sensitive-info repo is the private lab one, not this one).
+
+**Action.**
+1. Backed up full pre-scrub history: `AI_HOME/ARCHIVE/SewershedDelineation_pre_scrub_backup_20260906/full_history.bundle` (local only, never pushed).
+2. `git-filter-repo --replace-text` across all 56 commits: the city name and creek/
+   interceptor name replaced with generic terms (matching the 2026-07-12 working-tree
+   scrub's own convention — "trunk interceptor" for the creek; "the city" / "the city's"
+   for the city name), applied to blob content AND commit messages.
+3. `git-filter-repo --path ... --invert-paths` deleted all 6 flagged `.gpkg` binaries
+   from every commit that ever held them.
+4. Verified clean: zero hits for either identifying string across the current tree AND
+   every commit in history (`git rev-list --all | xargs git grep`); all 6 gpkg paths gone
+   from `git log --all --name-only`. Full test suite (175 tests) passes unchanged.
+5. **Found and fixed a real regression the mechanical replace-text caused**:
+   `run_meter_service_areas_from_coords.py`'s `SITE_PREFIX` constant got rewritten from
+   the real city's naming convention to a placeholder that doesn't match real data —
+   silently breaking meter-name parsing, not just wording. Generalized to split on the
+   first underscore instead of matching a hardcoded prefix, so it works generically
+   rather than reintroducing a city name to fix it.
+6. Force-pushed the rewritten history over `origin/master` (confirmed via unauthenticated
+   fetch: live repo shows the file list and README, no identifying strings visible).
+
+**Residual risk, stated once and not re-litigated**: anyone who already cloned, forked,
+or viewed the repo before this force-push has the old content regardless of what's live
+now; search-engine or GitHub cache copies may lag. Accepted as low-probability by Grace's
+own risk call, not something this rewrite can retroactively fix.
