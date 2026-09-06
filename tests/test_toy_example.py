@@ -217,7 +217,7 @@ def test_boundary_follows_the_network_instead_of_blobbing(tmp_path, monkeypatch)
     Real street node spacing is uneven (178-1130 ft between adjacent
     intersections), unlike the old uniform 1000 ft grid, so there is no clean
     formula for the expected corridor area — this pins the measured value
-    instead (76.7 acres, confirmed by actually running the pipeline; see
+    instead (70.7 acres, confirmed by actually running the pipeline; see
     docs/decision_log.md 2026-09-06).
 
     The bounding rectangle of the whole real street footprint is ~101 acres
@@ -234,9 +234,9 @@ def test_boundary_follows_the_network_instead_of_blobbing(tmp_path, monkeypatch)
     gdf = gpd.read_file(tmp_path / SANDBOX / "output" / "sewershed_final.gpkg",
                         layer="boundary")
     area = gdf.iloc[0]["area_acres"]
-    assert 65.0 < area < 90.0, (
+    assert 60.0 < area < 85.0, (
         f"toy boundary {area:.1f} acres is outside the expected band "
-        f"(65-90 acres) around the measured 76.7")
+        f"(60-85 acres) around the measured 70.7")
 
 
 def test_headwater_site_is_skipped_without_crashing(tmp_path, monkeypatch):

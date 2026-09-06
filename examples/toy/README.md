@@ -22,13 +22,13 @@ Expected output:
 Loading graph : examples/toy/data/gravity_mains.gpkg
 
 label           target                  pipes  served     acres  status
-MH01            MH01                       14      66      76.7  ok
+MH01            MH01                       14      59      70.7  ok
 
 Wrote examples/toy/output/sewershed_final.gpkg (layer: boundary, 1 sites)
 Wrote examples/toy/output/flags.csv (0 flags)
 Wrote examples/toy/output/qc_flags.gpkg (+0 delineation flag layers)
 
-Delineated 1 site(s); median area 77 acres.
+Delineated 1 site(s); median area 71 acres.
 ```
 
 `examples/toy/output/` is gitignored — delete it any time.

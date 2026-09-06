@@ -2516,3 +2516,20 @@ metrics for the new 14-pipe/15-node network; full suite passes (175 tests).
 redistributable) — the median-parcel-value metric in `demo_app.py` is still labeled
 synthetic. The sewer pipe network's existence/connectivity is invented; only its
 alignment traces real streets.
+
+**Correction, same day:** the first version of this also carried each pipe's real
+street CURVE as interior LineString vertices (not just straight endpoint-to-endpoint).
+Grace caught it visually — several pipes rendered as visible zigzags on the map
+(screenshot review). Root cause: a handful of Trinity Park streets are mapped in
+OpenStreetMap as multiple near-parallel ways sharing endpoints with the real
+centerline (sidewalks, dual-tagged carriageways), and the chain-contraction script
+used to stitch intersection-to-intersection segments together sometimes hopped onto
+the wrong parallel way partway along a block. Fixed by dropping the interior
+vertices — every pipe is now a straight line between its two real intersection
+endpoints. Endpoints are unaffected (still real, still verified against the Census
+extract). Re-ran the pipeline after the fix: MH01 now serves 59 parcels / 70.7 acres
+(was 66 / 76.7 with the zigzag geometry — the corridor selection picked up slightly
+different parcels once the pipe paths straightened). Real population for MH01 stayed
+488; median household income shifted slightly ($106.6k -> $104.3k) since the
+boundary shape changed a little. Updated the pinned numbers in `test_demo_app.py`,
+`test_toy_example.py`, and `examples/toy/README.md` to match.

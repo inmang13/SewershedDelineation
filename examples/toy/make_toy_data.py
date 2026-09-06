@@ -5,17 +5,23 @@ Builds a small sewer network and parcel fabric so anyone can run the
 delineation pipeline end to end without the municipal GIS layers, which are
 not redistributable.
 
-The pipe/manhole GEOMETRY is real: it follows actual street centerlines and
+The pipe/manhole ENDPOINTS are real: manholes sit at actual street
 intersections in Trinity Park, a residential neighborhood in Durham, NC
 (source: OpenStreetMap, (c) OpenStreetMap contributors, ODbL,
 https://www.openstreetmap.org/copyright -- pulled via the Overpass API on
-2026-09-06). The SEWER NETWORK ITSELF IS INVENTED: no real sewer infrastructure
-is used or implied. Real streets are dendritic often enough in practice
-(a spanning tree taken from the real intersection graph, rooted at the
-southernmost junction) that this reads as a plausible sewershed without
-claiming to trace an actual pipe. Pipe attributes (FACILITYID, invert
-elevations, slope) are synthetic, assigned the same way as before: one
-invented elevation step per pipe, falling toward the outlet.
+2026-09-06). The path BETWEEN intersections is drawn as a straight line, not
+the real street curve -- an earlier version carried the real curve as
+interior vertices, but several streets here are mapped as multiple
+near-parallel OSM ways (sidewalks, dual-tagged carriageways) sharing
+endpoints with the real centerline, and the automated chain-walk sometimes
+hopped onto the wrong one partway along, producing visible zigzags on the
+map (docs/decision_log.md 2026-09-06). The SEWER NETWORK ITSELF IS INVENTED:
+no real sewer infrastructure is used or implied. Real streets are dendritic
+often enough in practice (a spanning tree taken from the real intersection
+graph, rooted at the southernmost junction) that this reads as a plausible
+sewershed without claiming to trace an actual pipe. Pipe attributes
+(FACILITYID, invert elevations, slope) are synthetic, assigned the same way
+as before: one invented elevation step per pipe, falling toward the outlet.
 
 Parcels remain an invented regular grid (PARCEL_SIZE ft squares), now sized to
 cover the real street footprint. Real assessor parcel geometry/values are not
@@ -54,10 +60,10 @@ Design notes (why the numbers are what they are)
   manhole point is exactly coincident with its endpoint. `manhole_node_snap_ft`
   is 5.0 ft and `node_snap_tolerance_ft` is 1.0 ft; near-identical coordinates
   would produce a confusing "not on the gravity-main network" error.
-* **No pipe passes through a node that is not its own endpoint.** Real street
-  curves are kept as interior vertices on the pipe LineString (so the map shows
-  the actual street shape), but every interior vertex is a plain shape point,
-  not a graph node — the midspan-junction splitter has nothing to do.
+* **No pipe passes through a node that is not its own endpoint.** Every pipe
+  is a straight two-point line between its own endpoints (see the PIPES
+  comment for why not a curve), so the midspan-junction splitter has nothing
+  to do.
 * **Node spacing is real, and uneven** (178-1130 ft between adjacent
   intersections) — unlike the original synthetic 1000 ft grid. This is real
   neighborhood block spacing, verified by running the actual pipeline against
@@ -112,45 +118,34 @@ NODES = {
     "MH15": (1064.9, 1489.2),    # headwater
 }
 
-# (FACILITYID, upstream node, downstream node, real street name,
-#  [interior vertex offsets ft] tracing the real street curve between them).
+# (FACILITYID, upstream node, downstream node, real street name).
 # Order is drawn direction: first vertex of the LineString = upstream.
+#
+# Drawn as straight lines between real intersections, NOT the real street
+# curve. An earlier version carried interior vertices lifted from the OSM way
+# geometry between each pair of intersections, but several streets in this
+# extract are mapped as multiple near-parallel ways (sidewalks, dual-tagged
+# carriageways) sharing endpoints with the real centerline; the chain-walk
+# that stitched intersection-to-intersection segments together sometimes
+# hopped onto the wrong parallel way partway along, producing visible
+# zigzags on the map (see docs/decision_log.md 2026-09-06). The endpoints
+# (NODES above) are still real, verified intersection coordinates —only the
+# path between them is simplified to avoid re-introducing that failure mode.
 PIPES = [
-    ("P001", "MH02", "MH01", "Fernway Avenue", [(-19.2, 2.2)]),
-    ("P002", "MH03", "MH01", "Morris Street", []),
-    ("P003", "MH04", "MH01", "Morris Street",
-     [(-7.6, -126.3), (-16.9, -281.4), (10.0, -283.9), (184.6, -285.6),
-      (328.0, -286.5), (369.4, -286.1), (373.0, -248.3), (374.4, -228.2)]),
-    ("P004", "MH05", "MH02", "Liggett Street",
-     [(-246.7, 38.0), (-217.5, 383.1), (-199.3, 580.8), (-183.6, 773.7),
-      (-173.2, 811.2), (-122.2, 915.4)]),
-    ("P005", "MH06", "MH02", "Fernway Avenue",
-     [(-330.4, 21.5), (-351.4, 26.6), (-363.3, 35.0), (-373.0, 41.1),
-      (-437.0, 90.9), (-447.0, 99.3), (-499.1, 137.1), (-526.4, 156.8)]),
-    ("P006", "MH07", "MH03", "Morris Street",
-     [(23.4, 311.3), (28.3, 364.1), (31.8, 421.9), (39.4, 529.7),
-      (42.3, 572.3), (42.6, 578.8), (58.7, 818.0)]),
-    ("P007", "MH08", "MH04", "Hunt Street", [(597.1, 171.3), (604.4, 170.6)]),
-    ("P008", "MH09", "MH05", "West Corporation Street",
-     [(-173.7, 964.9), (-203.6, 974.3), (-237.3, 981.9), (-282.8, 986.2),
-      (-378.1, 986.5)]),
-    ("P009", "MH10", "MH06", "Fernway Avenue",
-     [(-709.9, 288.4), (-816.2, 366.5), (-826.5, 374.2), (-1011.8, 517.8)]),
-    ("P010", "MH11", "MH07", "Washington Street",
-     [(60.9, 951.6), (74.3, 1210.1), (81.6, 1284.0), (86.6, 1314.9),
-      (93.3, 1343.7), (141.8, 1438.0)]),
-    ("P011", "MH12", "MH07", "West Corporation Street",
-     [(80.8, 875.2), (153.0, 847.2), (181.4, 839.2), (212.2, 833.1),
-      (247.1, 830.9), (418.9, 829.7), (426.0, 829.7)]),
-    ("P012", "MH13", "MH09", "West Corporation Street",
-     [(-598.5, 982.7), (-628.9, 982.6), (-770.0, 983.2)]),
-    ("P013", "MH14", "MH11", "Washington Street",
-     [(204.9, 1559.7), (345.2, 1833.6), (352.8, 1848.9), (362.3, 1867.1),
-      (447.9, 2038.2), (470.3, 2082.3)]),
-    ("P014", "MH15", "MH11", "West Geer Street",
-     [(201.5, 1483.6), (527.7, 1485.0), (637.2, 1485.5), (662.9, 1485.5),
-      (693.7, 1485.5), (743.9, 1485.6), (816.7, 1486.0), (860.2, 1486.1),
-      (883.5, 1486.4)]),
+    ("P001", "MH02", "MH01", "Fernway Avenue"),
+    ("P002", "MH03", "MH01", "Morris Street"),
+    ("P003", "MH04", "MH01", "Morris Street"),
+    ("P004", "MH05", "MH02", "Liggett Street"),
+    ("P005", "MH06", "MH02", "Fernway Avenue"),
+    ("P006", "MH07", "MH03", "Morris Street"),
+    ("P007", "MH08", "MH04", "Hunt Street"),
+    ("P008", "MH09", "MH05", "West Corporation Street"),
+    ("P009", "MH10", "MH06", "Fernway Avenue"),
+    ("P010", "MH11", "MH07", "Washington Street"),
+    ("P011", "MH12", "MH07", "West Corporation Street"),
+    ("P012", "MH13", "MH09", "West Corporation Street"),
+    ("P013", "MH14", "MH11", "Washington Street"),
+    ("P014", "MH15", "MH11", "West Geer Street"),
 ]
 
 
@@ -162,7 +157,7 @@ def _steps_from_outlet() -> dict[str, int]:
     from PIPES rather than hand-tabulated, so editing the network can't leave a
     stale step count behind.
     """
-    downstream_of = {up: dn for _, up, dn, *_ in PIPES}
+    downstream_of = {up: dn for _, up, dn, _ in PIPES}
     steps = {}
     for node in NODES:
         n, cur = 0, node
@@ -190,14 +185,13 @@ def _invert(node: str) -> float:
 
 
 def build_mains() -> gpd.GeoDataFrame:
-    """The gravity mains, drawn upstream -> downstream, following real street
-    curves between real intersections."""
+    """The gravity mains, drawn upstream -> downstream as straight lines
+    between real intersections (see the PIPES comment for why not curved)."""
     rows = []
-    for fid, up, dn, street, interior in PIPES:
+    for fid, up, dn, street in PIPES:
         up_xy = _xy(up)
         dn_xy = _xy(dn)
-        interior_xy = [(X0 + dx, Y0 + dy) for dx, dy in interior]
-        geom = LineString([up_xy, *interior_xy, dn_xy])
+        geom = LineString([up_xy, dn_xy])
         rows.append({
             "FACILITYID": fid,
             "STREETNAME": street,

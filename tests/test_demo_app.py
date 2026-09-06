@@ -8,8 +8,8 @@ needs ships with the repo.
 Pins:
   - the app loads and renders without exception;
   - MH01 (the outlet) delineates successfully with the exact numbers
-    examples/toy/README.md documents (14 pipes traced, 66 served parcels,
-    76.7 acres) — a silent regression in the boundary pipeline would show
+    examples/toy/README.md documents (14 pipes traced, 59 served parcels,
+    70.7 acres) — a silent regression in the boundary pipeline would show
     up here as a changed number, not just a crash;
   - MH01's real-Census demographics panel renders a nonzero population;
   - a headwater (MH08) reports its status as a warning, not a crash or a
@@ -45,8 +45,8 @@ def test_mh01_delineates_with_documented_numbers():
 
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["Traced pipes"] == "14"
-    assert metrics["Served parcels"] == "66"
-    assert metrics["Area (acres)"] == "76.7"
+    assert metrics["Served parcels"] == "59"
+    assert metrics["Area (acres)"] == "70.7"
     assert metrics["Est. population"] == "488"
 
 
