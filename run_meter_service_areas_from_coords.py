@@ -66,7 +66,9 @@ from run_meter_service_areas import capture_metrics, SQFT_PER_ACRE  # noqa: E402
 # the city's meter coordinate export lives in the RDII project (immutable raw input).
 COORDS_CSV = Path("../RDII/data/raw/meter_coordinates.csv")
 COORDS_CRS = "EPSG:4326"          # LATITUDE / LONGITUDE columns are WGS84 lat/lon
-SITE_PREFIX = "SITE_"           # LOCATION NAME is SITE_<meter>
+# LOCATION NAME is "<CITY>_<meter>" (e.g. one real export uses a 6-letter city
+# code). Stripped generically — up to and including the first underscore —
+# rather than hardcoding the source city's name in a public repo.
 
 # meter -> MONITORBAS code it is expected to drain. Only used for the capture-%
 # QC column; meters absent here still get a dominant_basin label.
@@ -107,7 +109,7 @@ def load_meter_targets(base, crs):
     targets = []
     for _, r in df.iterrows():
         site = str(r["LOCATION NAME"]).strip()
-        meter = site[len(SITE_PREFIX):] if site.startswith(SITE_PREFIX) else site
+        meter = site.split("_", 1)[1] if "_" in site else site
         x, y = transformer.transform(float(r["LONGITUDE"]), float(r["LATITUDE"]))
         targets.append((meter, x, y))
     if not targets:
