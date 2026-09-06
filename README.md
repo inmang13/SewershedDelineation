@@ -88,9 +88,10 @@ default — all distance parameters (snap tolerances, buffers) are in feet. Chan
 streamlit run demo_app.py
 ```
 
-Runs entirely on the synthetic toy network below — no municipal data, no
-config to edit. Pick a manhole, see the traced pipes and delineated catchment
-on a map.
+Runs on a toy network with **real street geometry** (Trinity Park, Durham NC)
+and **real Census demographics** for that area — no municipal data, no
+config to edit. Pick a manhole, see the traced pipes, delineated catchment,
+and socioeconomic profile on a map.
 
 ## Quickstart (run order)
 

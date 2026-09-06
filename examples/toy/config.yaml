@@ -8,8 +8,12 @@
 #
 # Every parameter that affects the delineation carries its shipped production
 # value from the repo-root config.yaml — nothing is tuned to flatter the demo.
-# The toy network is spaced at 1000 ft precisely so the real thresholds behave
-# sensibly on it, rather than the thresholds being relaxed to suit the network.
+# The network geometry is real (Trinity Park, Durham NC street centerlines and
+# intersections — see make_toy_data.py), so spacing is real and uneven
+# (178-1130 ft between adjacent manholes). Checked by actually running the
+# pipeline against it (docs/decision_log.md 2026-09-06): the shipped
+# `delaunay_max_edge_ft` (500 ft) still behaves, no threshold was loosened to
+# suit the network.
 #
 # Two deliberate departures, neither of which touches the geometry:
 #   * `basemap_style` is "street", not the production "satellite". Tiles would
@@ -19,14 +23,16 @@
 #     thresholds read only by src/validation.py --sweep, which needs the truth
 #     polygons this example does not ship.
 #
-# Also NOT included: the census-block inputs, the validation truth set, and the
-# `census:` / `demographics:` blocks. The demographic phase needs real Census
-# geography and an API key, so it cannot run here — see README.md and
-# docs/demographics_walkthrough.md.
+# Census blocks + demographics ARE included, unlike the rest of this example:
+# examples/toy/data/census_blocks.gpkg and data/census/*.csv are a small,
+# real, public-domain extract (Census Bureau TIGER/ACS/decennial — see
+# fetch_real_census.py) for the same Trinity Park, Durham NC area the street
+# geometry above is drawn from. No API key is needed to USE this example; one
+# is only needed to re-fetch a fresh extract.
 
 inputs:
-  # MH01 is the outlet: tracing it returns the whole 12-pipe network.
-  # Try --sites MH04 (6 pipes) or --sites MH08 (a headwater — no upstream).
+  # MH01 is the outlet: tracing it returns the whole 14-pipe network.
+  # Try --sites MH05 (2 pipes) or --sites MH08 (a headwater — no upstream).
   manhole_id: "MH01"
   manhole_coordinate: null
 
@@ -37,6 +43,10 @@ inputs:
 
   # qa_review_decisions is deliberately omitted: the toy network has no defects
   # to review, and the loader treats a missing path as "no decisions".
+
+  census_blocks_shapefile: "data/census_blocks.gpkg"
+  census_blocks_crs: "EPSG:4326"      # TIGERweb geojson pull; already set on the file
+  census_blocks_county_fips: "063"
 
 parameters:
   crs: "EPSG:2264"                  # NAD83 / NC State Plane, US survey feet
@@ -112,3 +122,110 @@ outputs:
   sewershed_parcels: "output/sewershed_parcels.shp"
   sewershed_boundary: "output/sewershed_boundary.shp"
   qc_flags_gpkg: "output/qc_flags.gpkg"
+  demographics_csv: "output/demographics/sewershed_demographics.csv"
+  demographics_shp: "output/demographics/sewershed_demographics.shp"
+
+# Demographic join phase, pointed at the small real extract this example
+# ships (see fetch_real_census.py) instead of the statewide/county-wide cache
+# the repo-root config.yaml uses. Same schema, same code path
+# (src/census_data.py, demographics.py) — just a smaller, committed AOI.
+census:
+  state_fips: "37"
+  county_fips: "063"
+  data_dir: "data/census"
+  manifest_path: "data/census/manifest.json"
+  decennial_vintage: 2020
+  acs5_vintage: 2024              # pinned to the vintage the extract was pulled at
+
+  decennial_variables:
+    P1_001N: total_population
+    P1_003N: white_alone
+    P1_004N: black_alone
+    P1_005N: amind_alone
+    P1_006N: asian_alone
+    P1_007N: nhpi_alone
+    P1_008N: other_alone
+    P1_009N: two_or_more
+    P2_002N: hispanic
+    P2_003N: not_hispanic
+  acs5_variables:
+    B19013_001E: median_hh_income
+    B19013_001M: median_hh_income_moe
+    C17002_001E: poverty_universe
+    C17002_002E: poverty_under050
+    C17002_003E: poverty_050_099
+    C17002_001M: poverty_universe_moe
+    C17002_002M: poverty_under050_moe
+    C17002_003M: poverty_050_099_moe
+    B19058_001E: households_total
+    B19058_002E: households_snap
+    B19058_001M: households_total_moe
+    B19058_002M: households_snap_moe
+    B19001_001E: hhinc_total
+    B19001_002E: hhinc_lt10k
+    B19001_003E: hhinc_10_15k
+    B19001_004E: hhinc_15_20k
+    B19001_005E: hhinc_20_25k
+    B19001_006E: hhinc_25_30k
+    B19001_007E: hhinc_30_35k
+    B19001_008E: hhinc_35_40k
+    B19001_009E: hhinc_40_45k
+    B19001_010E: hhinc_45_50k
+    B19001_011E: hhinc_50_60k
+    B19001_012E: hhinc_60_75k
+    B19001_013E: hhinc_75_100k
+    B19001_014E: hhinc_100_125k
+    B19001_015E: hhinc_125_150k
+    B19001_016E: hhinc_150_200k
+    B19001_017E: hhinc_200k_plus
+
+demographics:
+  land_use_desc_column: "PARUSEDESC"
+  residential_desc_prefixes: ["RES/"]
+  residential_desc_contains: ["APT", "CONVERTED RESID"]
+  property_value_col: "PARVAL"
+
+  boundary_gpkg: "output/sewershed_final.gpkg"
+  boundary_layer: "boundary"
+  site_id_field: "SiteID"
+  tract_field: "tract"
+
+  roles:
+    total_pop: "P1_001N"
+    race:
+      white: "P1_003N"
+      black: "P1_004N"
+      amind: "P1_005N"
+      asian: "P1_006N"
+      nhpi: "P1_007N"
+      other: "P1_008N"
+      two_plus: "P1_009N"
+    ethnicity:
+      hispanic: "P2_002N"
+    poverty:
+      num: ["C17002_002E", "C17002_003E"]
+      den: "C17002_001E"
+      num_moe: ["C17002_002M", "C17002_003M"]
+      den_moe: "C17002_001M"
+    snap:
+      num: "B19058_002E"
+      den: "B19058_001E"
+      num_moe: "B19058_002M"
+      den_moe: "B19058_001M"
+    income_bins:
+      - ["B19001_002E", 0, 10000]
+      - ["B19001_003E", 10000, 15000]
+      - ["B19001_004E", 15000, 20000]
+      - ["B19001_005E", 20000, 25000]
+      - ["B19001_006E", 25000, 30000]
+      - ["B19001_007E", 30000, 35000]
+      - ["B19001_008E", 35000, 40000]
+      - ["B19001_009E", 40000, 45000]
+      - ["B19001_010E", 45000, 50000]
+      - ["B19001_011E", 50000, 60000]
+      - ["B19001_012E", 60000, 75000]
+      - ["B19001_013E", 75000, 100000]
+      - ["B19001_014E", 100000, 125000]
+      - ["B19001_015E", 125000, 150000]
+      - ["B19001_016E", 150000, 200000]
+      - ["B19001_017E", 200000, null]

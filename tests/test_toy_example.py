@@ -45,10 +45,11 @@ from traversal import trace_manhole                     # noqa: E402
 
 TOY_CONFIG = ROOT / "examples" / "toy" / "config.yaml"
 
-# Hand-counted from the NODES/PIPES tables in examples/toy/make_toy_data.py.
-# MH01 is the outlet (whole tree); MH03 and MH04 are junctions partway up;
-# MH08 is a headwater with nothing above it.
-UPSTREAM_PIPE_COUNTS = {"MH01": 12, "MH03": 10, "MH04": 6, "MH08": 0}
+# Hand-counted from the NODES/PIPES tables in examples/toy/make_toy_data.py
+# (real Trinity Park street tree, 14 pipes). MH01 is the outlet (whole tree);
+# MH02 and MH07 are junctions partway up; MH08 is a headwater with nothing
+# above it.
+UPSTREAM_PIPE_COUNTS = {"MH01": 14, "MH02": 5, "MH07": 4, "MH08": 0}
 
 
 @pytest.fixture(scope="module")
@@ -111,15 +112,16 @@ def test_committed_data_matches_the_generator(tmp_path):
 
 def test_toy_graph_has_one_edge_per_pipe(toy_graph):
     _, G, pipes, _ = toy_graph
-    assert len(pipes) == 12
-    assert G.number_of_edges() == 12      # no pipe dropped, none duplicated
-    assert G.number_of_nodes() == 13      # every endpoint pair merged to one node
+    assert len(pipes) == 14
+    assert G.number_of_edges() == 14      # no pipe dropped, none duplicated
+    assert G.number_of_nodes() == 15      # every endpoint pair merged to one node
 
 
 def test_toy_network_has_no_midspan_junctions(toy_graph):
-    """Every toy pipe is a single grid step, so no manhole sits on another
-    pipe's interior. If this fires, the generator has grown accidental
-    collinear geometry and the splitter is silently reshaping the network."""
+    """Every toy pipe has real street curvature as interior shape points, but no
+    manhole sits on another pipe's interior. If this fires, a real intersection
+    coincidentally landed on another pipe's curve and the splitter is silently
+    reshaping the network."""
     from pipe_splits import apply_midspan_splits
     cfg, _, pipes, _ = toy_graph
     _, split_log = apply_midspan_splits(pipes, cfg)
@@ -185,7 +187,7 @@ def test_run_py_delineates_the_toy_outlet(tmp_path, monkeypatch):
     gdf = gpd.read_file(out, layer="boundary")
     assert len(gdf) == 1
     assert gdf.iloc[0]["SiteID"] == "MH01"
-    assert gdf.iloc[0]["n_pipes"] == 12
+    assert gdf.iloc[0]["n_pipes"] == 14
     assert gdf.geometry.iloc[0].is_valid and not gdf.geometry.iloc[0].is_empty
 
 
@@ -212,17 +214,18 @@ def test_outputs_resolve_once_against_the_config_directory(tmp_path, monkeypatch
 def test_boundary_follows_the_network_instead_of_blobbing(tmp_path, monkeypatch):
     """Guards the toy's geometry against the boundary step over-bridging.
 
-    The served set is whole parcels, not the pipe buffer: each pipe runs along a
-    parcel-grid boundary, so the 50 ft selection radius catches the parcel on
-    each side and the served corridor is two parcels (400 ft) wide. Twelve
-    1000 ft pipes therefore cover about 110 acres.
+    Real street node spacing is uneven (178-1130 ft between adjacent
+    intersections), unlike the old uniform 1000 ft grid, so there is no clean
+    formula for the expected corridor area — this pins the measured value
+    instead (76.7 acres, confirmed by actually running the pipeline; see
+    docs/decision_log.md 2026-09-06).
 
-    If Delaunay bridged between branches instead of following them, the polygon
-    would balloon toward the convex hull of the tree — the network spans
-    4000 x 4000 ft, about 367 acres, so the failure mode is far outside the band
-    below rather than a near miss. The toy's 1000 ft node spacing exists to keep
-    branch gaps above delaunay_max_edge_ft (500 ft); this test fails if someone
-    tightens the spacing or loosens the threshold.
+    The bounding rectangle of the whole real street footprint is ~101 acres
+    (2091 x 2113 ft). If Delaunay bridged between branches instead of
+    following them, the polygon would balloon toward that full footprint —
+    the upper bound below is set well under it, so a bridging regression
+    still fails loud even though the real geometry doesn't leave as much
+    headroom as the old synthetic 4-armed tree did.
     """
     cfg_path = _toy_config_in(tmp_path, monkeypatch)
     monkeypatch.setattr(sys, "argv", ["run.py", "--config", cfg_path])
@@ -230,12 +233,10 @@ def test_boundary_follows_the_network_instead_of_blobbing(tmp_path, monkeypatch)
 
     gdf = gpd.read_file(tmp_path / SANDBOX / "output" / "sewershed_final.gpkg",
                         layer="boundary")
-    parcel_ft = 200.0                       # make_toy_data.PARCEL_SIZE
-    corridor_acres = (12 * 1000.0 * 2 * parcel_ft) / 43560.0     # ~110 acres
     area = gdf.iloc[0]["area_acres"]
-    assert 0.8 * corridor_acres < area < 1.5 * corridor_acres, (
-        f"toy boundary {area:.1f} acres is outside the expected corridor band "
-        f"around {corridor_acres:.1f} acres")
+    assert 65.0 < area < 90.0, (
+        f"toy boundary {area:.1f} acres is outside the expected band "
+        f"(65-90 acres) around the measured 76.7")
 
 
 def test_headwater_site_is_skipped_without_crashing(tmp_path, monkeypatch):
