@@ -2477,3 +2477,42 @@ per her current call (the sensitive-info repo is the private lab one, not this o
 or viewed the repo before this force-push has the old content regardless of what's live
 now; search-engine or GitHub cache copies may lag. Accepted as low-probability by Grace's
 own risk call, not something this rewrite can retroactively fix.
+
+## 2026-09-06 — CI fix: missing openpyxl dependency
+
+**Decision:** Add `openpyxl>=3.1` to `requirements.txt`.
+**Rationale:** Every GitHub Actions run had been failing since the workflow's first run
+(13/13 red) — `test_terminal_facilities.py` uses `pandas.read_excel` on a `.xlsx` facility
+list, and `openpyxl` was never listed as a dependency. It only worked locally because
+Grace's conda env already had it installed from something else, masking the gap. Fixed
+in commit ff4b285.
+
+## 2026-09-06 — Toy demo: real street geometry + real Census data, not fully synthetic
+
+**Decision:** Rebuilt the toy network's pipe/manhole geometry from real OpenStreetMap
+street centerlines and intersections (Trinity Park, Durham NC), and added a real,
+small (131 blocks / 10 block groups) Census extract (2020 decennial + ACS 5-year) for
+that same area, wired into `demo_app.py`'s socioeconomic panel through the actual
+production dasymetric join.
+**Rationale:** Grace: the public demo GUI was "a little skimpy" with the old
+round-number-coordinate synthetic network and synthetic-only values panel. Real streets
+and real Census data are both public-domain / redistributable by design (streets are
+public right-of-way; TIGER + Census API data are explicitly public domain) — unlike real
+sewer infrastructure or real assessor parcel values, which stay off-limits and stay
+synthetic. The sewer network itself is still fully invented (a spanning tree over the
+real intersection graph); only the alignment and the demographics are real.
+
+**Verification done before shipping:** real node spacing (178-1130 ft, vs. the old
+uniform 1000 ft grid) was checked against the Delaunay boundary method by actually
+running the pipeline (`python run.py --config examples/toy/config.yaml --sites MH01`) —
+76.7 acres served, no bridging/blob. `run_demographics.py --skip-fetch` against the real
+extract produced plausible real numbers for the traced area (488 population, $106.6k
+median household income, 15.8% poverty rate) — consistent with Trinity Park being a
+real, comparatively affluent Duke-adjacent Durham neighborhood. Updated
+`test_toy_example.py`'s hand-counted traversal oracles and `test_demo_app.py`'s pinned
+metrics for the new 14-pipe/15-node network; full suite passes (175 tests).
+
+**What stayed synthetic and why:** parcel geometry and `PARVAL` (assessor values aren't
+redistributable) — the median-parcel-value metric in `demo_app.py` is still labeled
+synthetic. The sewer pipe network's existence/connectivity is invented; only its
+alignment traces real streets.
