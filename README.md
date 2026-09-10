@@ -201,7 +201,7 @@ does: **median IoU 0.897** gravity-only on this independent set, in the same
 range as the 25-site number. (4 of 14 sites didn't trace at all — their
 surveyed coordinate sits more than the 50 ft snap tolerance from any network
 node, a coordinate-precision gap in the source data, not a tool failure.)
----
+
 
 ## Repository layout
 
