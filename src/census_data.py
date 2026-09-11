@@ -94,7 +94,7 @@ def check_drift(vintage: int, dataset_path: str, requested: list[str],
 
 
 def _pull_one(kind: str, vintage: int, variables: list[str], state_fips: str,
-              county_fips: str, key: str, data_path: Path,
+              county_fips: str, key: str, data_path: Path, base: Path,
               drift_resolver=None) -> dict:
     """Drift-check, fetch, write CSV, return the manifest entry for one dataset."""
     dataset_path = "dec/pl" if kind == "decennial" else "acs/acs5"
@@ -123,7 +123,7 @@ def _pull_one(kind: str, vintage: int, variables: list[str], state_fips: str,
         "remap": drift["remap"],
         "download_date": date.today().isoformat(),
         "rows": len(df),
-        "path": str(data_path),
+        "path": str(data_path.relative_to(base)),  # machine-independent — see load_cached
     }
 
 
@@ -162,7 +162,7 @@ def check_and_update(cfg: dict, force: bool = False, drift_resolver=None) -> dic
             print(f"  [{kind}] pulling vintage {vintage} "
                   f"({len(variables)} vars) -> {data_path.name}")
             manifest[kind] = _pull_one(kind, vintage, variables, state, county,
-                                       key, data_path, drift_resolver)
+                                       key, data_path, base, drift_resolver)
             print(f"  [{kind}] {manifest[kind]['rows']:,} rows cached")
         else:
             print(f"  [{kind}] up to date (vintage {vintage}, "
@@ -183,6 +183,6 @@ def load_cached(cfg: dict, kind: str) -> pd.DataFrame:
     if kind not in manifest:
         raise FileNotFoundError(
             f"No cached {kind} census data — run check_and_update first.")
-    path = Path(manifest[kind]["path"])
+    path = base / manifest[kind]["path"]  # stored relative to base — portable across machines
     df = pd.read_csv(path, dtype={"GEOID20": str, "GEOID": str})
     return df

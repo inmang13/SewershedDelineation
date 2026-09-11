@@ -33,7 +33,7 @@
     "remap": {},
     "download_date": "2026-09-06",
     "rows": 131,
-    "path": "C:\\Users\\Grace\\AI_HOME\\PROJECTS\\SewershedDelineation\\examples\\toy\\data\\census\\decennial_2020_blocks.csv"
+    "path": "data/census/decennial_2020_blocks.csv"
   },
   "acs5": {
     "vintage": 2024,
@@ -107,6 +107,6 @@
     "remap": {},
     "download_date": "2026-09-06",
     "rows": 10,
-    "path": "C:\\Users\\Grace\\AI_HOME\\PROJECTS\\SewershedDelineation\\examples\\toy\\data\\census\\acs5_2024_blockgroups.csv"
+    "path": "data/census/acs5_2024_blockgroups.csv"
   }
 }

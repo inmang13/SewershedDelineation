@@ -141,13 +141,13 @@ def main():
             "vintage": 2020, "dataset": ["dec", "pl"], "geography": "block",
             "variables": list(DECENNIAL_VARS), "effective_variables": list(DECENNIAL_VARS),
             "remap": {}, "download_date": date.today().isoformat(),
-            "rows": len(dec), "path": str(dec_path),
+            "rows": len(dec), "path": str(dec_path.relative_to(HERE)),
         },
         "acs5": {
             "vintage": acs_vintage, "dataset": ["acs", "acs5"], "geography": "block group",
             "variables": list(ACS5_VARS), "effective_variables": list(ACS5_VARS),
             "remap": {}, "download_date": date.today().isoformat(),
-            "rows": len(acs), "path": str(acs_path),
+            "rows": len(acs), "path": str(acs_path.relative_to(HERE)),
         },
     }
     manifest_path = CENSUS_DIR / "manifest.json"
